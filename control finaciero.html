@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control Financiero - Cell Fix</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#ffffff; --text:#1c1e21; --muted:#6b7280;
+    --border:#e5e7eb; --accent:#2563eb; --green:#16a34a; --red:#dc2626;
+    --greenbg:#ecfdf3; --redbg:#fef2f2; --accentbg:#eff6ff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:16px;
+  }
+  .wrap{max-width:520px; margin:0 auto;}
+  h1{font-size:20px; font-weight:600; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:16px;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:16px; margin-bottom:14px;
+  }
+  .card h2{font-size:15px; margin:0 0 12px; font-weight:600;}
+  label{display:block; font-size:12px; color:var(--muted); margin-bottom:4px; margin-top:10px;}
+  label:first-of-type{margin-top:0;}
+  input, select{
+    width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
+    font-size:14px; background:#fff; color:var(--text);
+  }
+  input:focus, select:focus{outline:2px solid var(--accent); outline-offset:-1px;}
+  button{
+    cursor:pointer; border:none; border-radius:8px; padding:10px 14px;
+    font-size:14px; font-weight:600;
+  }
+  .btn-primary{background:var(--accent); color:#fff; width:100%; margin-top:12px;}
+  .btn-primary:active{opacity:0.85;}
+  .btn-del{background:transparent; color:var(--red); padding:4px 8px; font-weight:500; font-size:13px;}
+  .tabs{display:flex; gap:4px; margin-bottom:14px; flex-wrap:wrap;}
+  .tab{
+    flex:1; min-width:60px; text-align:center; padding:8px 2px; border-radius:8px; font-size:11px;
+    font-weight:600; background:var(--card); border:1px solid var(--border); color:var(--muted);
+  }
+  .tab.active{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .hidden{display:none;}
+  .stat-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .stat{background:var(--bg); border-radius:8px; padding:10px 12px;}
+  .stat .label{font-size:11px; color:var(--muted);}
+  .stat .val{font-size:18px; font-weight:600; margin-top:2px;}
+  .progress-outer{background:var(--bg); border-radius:999px; height:14px; overflow:hidden; margin-top:8px;}
+  .progress-inner{background:var(--green); height:100%; border-radius:999px; transition:width .3s;}
+  .progress-text{font-size:12px; color:var(--muted); margin-top:6px; text-align:right;}
+  .row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 0; border-bottom:1px solid var(--border);
+  }
+  .row:last-child{border-bottom:none;}
+  .row .desc{font-size:14px; font-weight:500;}
+  .row .meta{font-size:12px; color:var(--muted);}
+  .row .amt{font-size:14px; font-weight:600; margin-right:8px;}
+  .amt.pos{color:var(--green);}
+  .amt.neg{color:var(--red);}
+  .badge{
+    display:inline-block; font-size:10px; font-weight:700; padding:2px 6px;
+    border-radius:4px; margin-left:6px; text-transform:uppercase;
+  }
+  .badge.ingreso{background:var(--greenbg); color:var(--green);}
+  .badge.gasto{background:var(--redbg); color:var(--red);}
+  .empty{color:var(--muted); font-size:13px; text-align:center; padding:16px 0;}
+  .item-right{display:flex; align-items:center;}
+  .cal-dow{font-size:10px; color:var(--muted); font-weight:600; padding:2px 0;}
+  .cal-day{
+    font-size:13px; padding:7px 0; border-radius:6px; cursor:pointer;
+    background:var(--bg); user-select:none;
+  }
+  .cal-day.empty-day{background:transparent; cursor:default;}
+  .cal-day.today{border:1px solid var(--accent);}
+  .cal-day.marked{background:var(--red); color:#fff; font-weight:700;}
+  .toggle{display:flex; gap:6px; margin-top:10px;}
+  .toggle button{flex:1; background:var(--bg); color:var(--muted); border:1px solid var(--border);}
+  .toggle button.sel-ingreso{background:var(--greenbg); color:var(--green); border-color:var(--green);}
+  .toggle button.sel-gasto{background:var(--redbg); color:var(--red); border-color:var(--red);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Control Financiero</h1>
+  <div class="sub" id="loadingMsg">Cell Fix — cargando datos...</div>
+
+  <div id="app" class="hidden">
+
+    <div class="tabs">
+      <div class="tab active" data-tab="resumen">Resumen</div>
+      <div class="tab" data-tab="movimientos">Movimientos</div>
+      <div class="tab" data-tab="costos">Costos y ganancias</div>
+      <div class="tab" data-tab="fijos">Gastos fijos</div>
+      <div class="tab" data-tab="cobrar">Por cobrar</div>
+    </div>
+
+    <!-- RESUMEN -->
+    <div id="tab-resumen" class="tab-content">
+      <div class="card">
+        <h2>Meta mensual de ingresos</h2>
+        <label for="metaInput">Monto que quieres recibir este mes (L)</label>
+        <input type="number" id="metaInput" placeholder="Ej. 25000" min="0" step="1">
+        <button class="btn-primary" id="saveMetaBtn">Guardar meta</button>
+      </div>
+
+      <div class="card">
+        <h2>Progreso del mes actual</h2>
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="label">Ingresos del mes</div>
+            <div class="val" id="mesIngresos">L 0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Gastos del mes</div>
+            <div class="val" id="mesGastos">L 0</div>
+          </div>
+        </div>
+        <div class="progress-outer"><div class="progress-inner" id="progressBar" style="width:0%"></div></div>
+        <div class="progress-text" id="progressText">Sin meta definida aun</div>
+      </div>
+
+      <div class="card">
+        <h2>Calendario de pagos</h2>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+          <button id="calPrev" style="background:var(--bg); color:var(--text); padding:6px 10px;">&larr;</button>
+          <div id="calLabel" style="font-size:14px; font-weight:600;"></div>
+          <button id="calNext" style="background:var(--bg); color:var(--text); padding:6px 10px;">&rarr;</button>
+        </div>
+        <div id="calGrid" style="display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center;"></div>
+
+        <div id="calEditor" class="hidden" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+          <label id="calEditorLabel" for="calDescInput">Pago del dia</label>
+          <input type="text" id="calDescInput" placeholder="Ej. Pago de alquiler">
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            <button id="calSaveBtn" class="btn-primary" style="margin-top:0; flex:1;">Guardar</button>
+            <button id="calDelBtn" style="background:var(--redbg); color:var(--red); flex:1;">Quitar marca</button>
+          </div>
+        </div>
+
+        <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border);">
+          <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Pagos programados</div>
+          <div id="calPagosList"></div>
+        </div>
+
+        <div style="font-size:12px; color:var(--muted); margin-top:10px;">
+          Toca un dia para marcarlo y escribir que gasto toca pagar (luz, agua, alquiler, etc).
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Ingresos y gastos por semana</h2>
+        <div id="weeklyChart"></div>
+        <div style="display:flex; gap:14px; margin-top:8px; font-size:12px; color:var(--muted);">
+          <span><span style="display:inline-block;width:9px;height:9px;background:var(--green);border-radius:2px;margin-right:4px;"></span>Ingresos</span>
+          <span><span style="display:inline-block;width:9px;height:9px;background:var(--red);border-radius:2px;margin-right:4px;"></span>Gastos</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Totales generales</h2>
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="label">Total ingresos</div>
+            <div class="val" id="totIngresos">L 0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Total gastos</div>
+            <div class="val" id="totGastos">L 0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Ganancia neta</div>
+            <div class="val" id="totNeto">L 0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Ganancia por productos</div>
+            <div class="val" id="totGananciaProd">L 0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Pendiente por cobrar</div>
+            <div class="val" id="totPorCobrar">L 0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOVIMIENTOS -->
+    <div id="tab-movimientos" class="tab-content hidden">
+      <div class="card">
+        <h2>Agregar movimiento</h2>
+        <label>Tipo</label>
+        <div class="toggle">
+          <button type="button" id="btnIngreso" class="sel-ingreso">Ingreso</button>
+          <button type="button" id="btnGasto">Gasto</button>
+        </div>
+        <label for="movDesc">Descripcion</label>
+        <input type="text" id="movDesc" placeholder="Ej. Reparacion pantalla iPhone 11">
+        <label for="movMonto">Monto (L)</label>
+        <input type="number" id="movMonto" placeholder="Ej. 850" min="0" step="1">
+        <label for="movFecha">Fecha</label>
+        <input type="date" id="movFecha">
+        <button class="btn-primary" id="addMovBtn">Agregar movimiento</button>
+      </div>
+
+      <div class="card">
+        <h2>Historial</h2>
+        <div id="movList"></div>
+      </div>
+    </div>
+
+    <!-- COSTOS Y GANANCIAS -->
+    <div id="tab-costos" class="tab-content hidden">
+      <div class="card">
+        <h2>Registrar reparacion / producto</h2>
+        <label for="prodNombre">Nombre</label>
+        <input type="text" id="prodNombre" placeholder="Ej. Cambio de bateria Samsung A20">
+        <label for="prodCosto">Costo (repuesto + mano de obra, L)</label>
+        <input type="number" id="prodCosto" placeholder="Ej. 300" min="0" step="1">
+        <label for="prodPrecio">Precio de venta (L)</label>
+        <input type="number" id="prodPrecio" placeholder="Ej. 550" min="0" step="1">
+        <button class="btn-primary" id="addProdBtn">Guardar</button>
+      </div>
+
+      <div class="card">
+        <h2>Historial de costos y ganancias</h2>
+        <div id="prodList"></div>
+      </div>
+    </div>
+
+    <!-- GASTOS FIJOS -->
+    <div id="tab-fijos" class="tab-content hidden">
+      <div class="card">
+        <h2>Agregar gasto de funcionamiento</h2>
+        <label for="fijoCategoria">Categoria</label>
+        <select id="fijoCategoria">
+          <option value="Luz">Luz</option>
+          <option value="Agua">Agua</option>
+          <option value="Alquiler">Alquiler</option>
+          <option value="Combustible">Combustible</option>
+          <option value="Internet">Internet</option>
+          <option value="Telefono">Telefono</option>
+          <option value="Salarios">Salarios</option>
+          <option value="otro">Otro (escribir abajo)</option>
+        </select>
+        <div id="fijoOtroWrap" class="hidden">
+          <label for="fijoOtroNombre">Nombre del gasto</label>
+          <input type="text" id="fijoOtroNombre" placeholder="Ej. Mantenimiento de equipo">
+        </div>
+        <label for="fijoMonto">Monto (L)</label>
+        <input type="number" id="fijoMonto" placeholder="Ej. 1200" min="0" step="1">
+        <label for="fijoFecha">Fecha</label>
+        <input type="date" id="fijoFecha">
+        <button class="btn-primary" id="addFijoBtn">Agregar gasto fijo</button>
+      </div>
+
+      <div class="card">
+        <h2>Gastos fijos del mes actual</h2>
+        <div class="stat">
+          <div class="label">Total del mes</div>
+          <div class="val" id="fijosMesTotal">L 0</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Historial de gastos fijos</h2>
+        <div id="fijosList"></div>
+      </div>
+    </div>
+
+    <!-- POR COBRAR -->
+    <div id="tab-cobrar" class="tab-content hidden">
+      <div class="card">
+        <h2>Agregar cliente que debe pagar</h2>
+        <label for="cobNombre">Nombre del cliente</label>
+        <input type="text" id="cobNombre" placeholder="Ej. Juan Perez">
+        <label for="cobDesc">Reparacion / detalle</label>
+        <input type="text" id="cobDesc" placeholder="Ej. Cambio de pantalla iPhone 12">
+        <label for="cobCosto">Costo invertido (repuesto + mano de obra, L)</label>
+        <input type="number" id="cobCosto" placeholder="Ej. 400" min="0" step="1">
+        <label for="cobMonto">Monto que te debe pagar (L)</label>
+        <input type="number" id="cobMonto" placeholder="Ej. 700" min="0" step="1">
+        <label for="cobFecha">Fecha</label>
+        <input type="date" id="cobFecha">
+        <button class="btn-primary" id="addCobBtn">Agregar</button>
+      </div>
+
+      <div class="card">
+        <h2>Pendientes de pago</h2>
+        <div id="cobPendList"></div>
+      </div>
+
+      <div class="card">
+        <h2>Ya pagaron</h2>
+        <div id="cobPagList"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyDkUyFBfNGy1_Dhcz-STotxfNrTBzPGn-4",
+  authDomain: "proyecto-de-finanza.firebaseapp.com",
+  databaseURL: "https://proyecto-de-finanza-default-rtdb.firebaseio.com",
+  projectId: "proyecto-de-finanza",
+  storageBucket: "proyecto-de-finanza.firebasestorage.app",
+  messagingSenderId: "1008213932910",
+  appId: "1:1008213932910:web:c920758e676c3f7ebcdf7f"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const DB_ROOT = 'cellfix_control';
+
+const storage = {
+  async get(key){
+    const snap = await db.ref(DB_ROOT + '/' + key).once('value');
+    const val = snap.val();
+    if(val===null || val===undefined) return null;
+    return {key, value: val};
+  },
+  async set(key, value){
+    await db.ref(DB_ROOT + '/' + key).set(value);
+    return {key, value};
+  }
+};
+
+const fmt = n => 'L ' + Number(n||0).toLocaleString('es-HN', {maximumFractionDigits:0});
+const todayStr = () => new Date().toISOString().slice(0,10);
+
+let meta = 0;
+let movimientos = []; 
+let productos = []; 
+let gastosFijos = []; 
+let diasPago = []; 
+let porCobrar = []; 
+let tipoSel = 'ingreso';
+let calDate = new Date();
+let selectedDate = null;
+
+async function loadData(){
+  try{
+    const m = await storage.get('meta');
+    meta = m ? Number(JSON.parse(m.value)) : 0;
+  }catch(e){ meta = 0; }
+  try{
+    const mv = await storage.get('movimientos');
+    movimientos = mv ? JSON.parse(mv.value) : [];
+  }catch(e){ movimientos = []; }
+  try{
+    const pr = await storage.get('productos');
+    productos = pr ? JSON.parse(pr.value) : [];
+  }catch(e){ productos = []; }
+  try{
+    const gf = await storage.get('gastosFijos');
+    gastosFijos = gf ? JSON.parse(gf.value) : [];
+  }catch(e){ gastosFijos = []; }
+  try{
+    const dp = await storage.get('diasPago');
+    diasPago = dp ? JSON.parse(dp.value) : [];
+    diasPago = diasPago.map(x => typeof x === 'string' ? {fecha:x, desc:''} : x);
+  }catch(e){ diasPago = []; }
+  try{
+    const pc = await storage.get('porCobrar');
+    porCobrar = pc ? JSON.parse(pc.value) : [];
+  }catch(e){ porCobrar = []; }
+}
+
+async function saveMeta(){
+  try{ await storage.set('meta', JSON.stringify(meta)); }catch(e){}
+}
+async function saveMov(){
+  try{ await storage.set('movimientos', JSON.stringify(movimientos)); }catch(e){}
+}
+async function saveProd(){
+  try{ await storage.set('productos', JSON.stringify(productos)); }catch(e){}
+}
+async function saveFijos(){
+  try{ await storage.set('gastosFijos', JSON.stringify(gastosFijos)); }catch(e){}
+}
+async function saveDiasPago(){
+  try{ await storage.set('diasPago', JSON.stringify(diasPago)); }catch(e){}
+}
+async function savePorCobrar(){
+  try{ await storage.set('porCobrar', JSON.stringify(porCobrar)); }catch(e){}
+}
+
+function renderResumen(){
+  document.getElementById('metaInput').value = meta || '';
+
+  const now = new Date();
+  const ym = now.toISOString().slice(0,7);
+  const delMes = movimientos.filter(m => (m.fecha||'').slice(0,7) === ym);
+  const fijosDelMes = gastosFijos.filter(f => (f.fecha||'').slice(0,7) === ym);
+  const cobDelMes = porCobrar.filter(c => (c.fecha||'').slice(0,7) === ym);
+  const mesIng = delMes.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0);
+  const mesGas = delMes.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
+    + fijosDelMes.reduce((a,b)=>a+Number(b.monto),0)
+    + cobDelMes.reduce((a,b)=>a+Number(b.costo),0);
+  document.getElementById('mesIngresos').textContent = fmt(mesIng);
+  document.getElementById('mesGastos').textContent = fmt(mesGas);
+
+  const pct = meta > 0 ? Math.min(100, Math.round((mesIng/meta)*100)) : 0;
+  document.getElementById('progressBar').style.width = pct + '%';
+  document.getElementById('progressText').textContent = meta > 0
+    ? pct + '% de la meta (' + fmt(mesIng) + ' de ' + fmt(meta) + ')'
+    : 'Define tu meta mensual arriba';
+
+  const totIng = movimientos.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0);
+  const totGas = movimientos.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
+    + gastosFijos.reduce((a,b)=>a+Number(b.monto),0)
+    + porCobrar.reduce((a,b)=>a+Number(b.costo),0);
+  document.getElementById('totIngresos').textContent = fmt(totIng);
+  document.getElementById('totGastos').textContent = fmt(totGas);
+  const neto = totIng - totGas;
+  const netoEl = document.getElementById('totNeto');
+  netoEl.textContent = fmt(neto);
+  netoEl.style.color = neto >= 0 ? 'var(--green)' : 'var(--red)';
+
+  const gananciaProd = productos.reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
+  document.getElementById('totGananciaProd').textContent = fmt(gananciaProd);
+
+  const pendiente = porCobrar.filter(c=>!c.pagado).reduce((a,b)=>a+Number(b.monto),0);
+  document.getElementById('totPorCobrar').textContent = fmt(pendiente);
+}
+
+function renderMovs(){
+  const el = document.getElementById('movList');
+  if(movimientos.length===0){
+    el.innerHTML = '<div class="empty">Todavia no hay movimientos registrados.</div>';
+    return;
+  }
+  const sorted = [...movimientos].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
+  el.innerHTML = sorted.map(m => `
+    <div class="row">
+      <div>
+        <div class="desc">${escapeHtml(m.desc)}<span class="badge ${m.tipo}">${m.tipo}</span></div>
+        <div class="meta">${m.fecha||''}</div>
+      </div>
+      <div class="item-right">
+        <span class="amt ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmt(m.monto)}</span>
+        <button class="btn-del" data-del-mov="${m.id}"><i>Borrar</i></button>
+      </div>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-del-mov]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      movimientos = movimientos.filter(m=>m.id!==btn.dataset.delMov);
+      await saveMov();
+      renderAll();
+    });
+  });
+}
+
+function renderProds(){
+  const el = document.getElementById('prodList');
+  if(productos.length===0){
+    el.innerHTML = '<div class="empty">Todavia no hay reparaciones o productos registrados.</div>';
+    return;
+  }
+  const sorted = [...productos].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
+  el.innerHTML = sorted.map(p => {
+    const gan = Number(p.precio) - Number(p.costo);
+    return `
+    <div class="row">
+      <div>
+        <div class="desc">${escapeHtml(p.nombre)}</div>
+        <div class="meta">Costo ${fmt(p.costo)} · Venta ${fmt(p.precio)} · ${p.fecha||''}</div>
+      </div>
+      <div class="item-right">
+        <span class="amt ${gan>=0?'pos':'neg'}">${gan>=0?'+':''}${fmt(gan)}</span>
+        <button class="btn-del" data-del-prod="${p.id}"><i>Borrar</i></button>
+      </div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-del-prod]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      productos = productos.filter(p=>p.id!==btn.dataset.delProd);
+      await saveProd();
+      renderAll();
+    });
+  });
+}
+
+function renderFijos(){
+  const now = new Date();
+  const ym = now.toISOString().slice(0,7);
+  const delMes = gastosFijos.filter(f => (f.fecha||'').slice(0,7) === ym);
+  const totalMes = delMes.reduce((a,b)=>a+Number(b.monto),0);
+  document.getElementById('fijosMesTotal').textContent = fmt(totalMes);
+
+  const el = document.getElementById('fijosList');
+  if(gastosFijos.length===0){
+    el.innerHTML = '<div class="empty">Todavia no hay gastos fijos registrados.</div>';
+    return;
+  }
+  const sorted = [...gastosFijos].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
+  el.innerHTML = sorted.map(f => `
+    <div class="row">
+      <div>
+        <div class="desc">${escapeHtml(f.categoria)}</div>
+        <div class="meta">${f.fecha||''}</div>
+      </div>
+      <div class="item-right">
+        <span class="amt neg">-${fmt(f.monto)}</span>
+        <button class="btn-del" data-del-fijo="${f.id}"><i>Borrar</i></button>
+      </div>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-del-fijo]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      gastosFijos = gastosFijos.filter(f=>f.id!==btn.dataset.delFijo);
+      await saveFijos();
+      renderAll();
+    });
+  });
+}
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const DOW = ['Do','Lu','Ma','Mi','Ju','Vi','Sa'];
+
+function renderCalendario(){
+  const year = calDate.getFullYear();
+  const month = calDate.getMonth();
+  document.getElementById('calLabel').textContent = MESES[month] + ' ' + year;
+
+  const grid = document.getElementById('calGrid');
+  grid.innerHTML = '';
+  DOW.forEach(d=>{
+    const el = document.createElement('div');
+    el.className = 'cal-dow';
+    el.textContent = d;
+    grid.appendChild(el);
+  });
+
+  const firstDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const todayIso = todayStr();
+
+  for(let i=0;i<firstDow;i++){
+    const el = document.createElement('div');
+    el.className = 'cal-day empty-day';
+    grid.appendChild(el);
+  }
+  for(let d=1; d<=daysInMonth; d++){
+    const iso = year+'-'+String(month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const marcado = diasPago.find(x=>x.fecha===iso);
+    const el = document.createElement('div');
+    el.className = 'cal-day' + (iso===todayIso?' today':'') + (marcado?' marked':'');
+    el.textContent = d;
+    el.title = marcado && marcado.desc ? marcado.desc : '';
+    el.addEventListener('click', ()=>{
+      selectedDate = iso;
+      openCalEditor();
+    });
+    grid.appendChild(el);
+  }
+}
+
+function openCalEditor(){
+  const marcado = diasPago.find(x=>x.fecha===selectedDate);
+  const d = new Date(selectedDate + 'T00:00:00');
+  document.getElementById('calEditorLabel').textContent =
+    'Pago del ' + d.getDate() + ' de ' + MESES[d.getMonth()];
+  document.getElementById('calDescInput').value = marcado ? marcado.desc : '';
+  document.getElementById('calEditor').classList.remove('hidden');
+  document.getElementById('calDescInput').focus();
+}
+
+function renderCalPagos(){
+  const el = document.getElementById('calPagosList');
+  if(diasPago.length===0){
+    el.innerHTML = '<div class="empty">Aun no has marcado dias de pago.</div>';
+    return;
+  }
+  const sorted = [...diasPago].sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  el.innerHTML = sorted.map(x=>{
+    const d = new Date(x.fecha + 'T00:00:00');
+    const label = d.getDate() + ' de ' + MESES[d.getMonth()];
+    return `
+    <div class="row">
+      <div>
+        <div class="desc">${escapeHtml(x.desc || 'Sin descripcion')}</div>
+        <div class="meta">${label}</div>
+      </div>
+      <button class="btn-del" data-del-pago="${x.fecha}"><i>Borrar</i></button>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-del-pago]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      diasPago = diasPago.filter(x=>x.fecha!==btn.dataset.delPago);
+      await saveDiasPago();
+      if(selectedDate===btn.dataset.delPago){
+        selectedDate = null;
+        document.getElementById('calEditor').classList.add('hidden');
+      }
+      renderCalendario();
+      renderCalPagos();
+    });
+  });
+}
+
+function setupCalendar(){
+  document.getElementById('calPrev').addEventListener('click', ()=>{
+    calDate = new Date(calDate.getFullYear(), calDate.getMonth()-1, 1);
+    selectedDate = null;
+    document.getElementById('calEditor').classList.add('hidden');
+    renderCalendario();
+  });
+  document.getElementById('calNext').addEventListener('click', ()=>{
+    calDate = new Date(calDate.getFullYear(), calDate.getMonth()+1, 1);
+    selectedDate = null;
+    document.getElementById('calEditor').classList.add('hidden');
+    renderCalendario();
+  });
+  document.getElementById('calSaveBtn').addEventListener('click', async ()=>{
+    if(!selectedDate) return;
+    const desc = document.getElementById('calDescInput').value.trim();
+    if(!desc){ alert('Escribe que gasto toca pagar ese dia.'); return; }
+    const existente = diasPago.find(x=>x.fecha===selectedDate);
+    if(existente){ existente.desc = desc; }
+    else{ diasPago.push({fecha:selectedDate, desc}); }
+    await saveDiasPago();
+    document.getElementById('calEditor').classList.add('hidden');
+    selectedDate = null;
+    renderCalendario();
+    renderCalPagos();
+  });
+  document.getElementById('calDelBtn').addEventListener('click', async ()=>{
+    if(!selectedDate) return;
+    diasPago = diasPago.filter(x=>x.fecha!==selectedDate);
+    await saveDiasPago();
+    document.getElementById('calEditor').classList.add('hidden');
+    selectedDate = null;
+    renderCalendario();
+    renderCalPagos();
+  });
+}
+
+function getMonday(d){
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = (day===0 ? -6 : 1-day);
+  date.setDate(date.getDate()+diff);
+  return date;
+}
+
+function renderWeeklyChart(){
+  const numWeeks = 8;
+  const today = new Date();
+  const thisMonday = getMonday(today);
+  const weeks = [];
+  for(let i=numWeeks-1; i>=0; i--){
+    const start = new Date(thisMonday);
+    start.setDate(start.getDate() - i*7);
+    const end = new Date(start);
+    end.setDate(end.getDate()+6);
+    weeks.push({start, end, ing:0, gas:0});
+  }
+
+  function addTo(fechaStr, tipo, monto){
+    const f = new Date(fechaStr + 'T00:00:00');
+    for(const w of weeks){
+      if(f >= w.start && f <= w.end){
+        if(tipo==='ingreso') w.ing += Number(monto);
+        else w.gas += Number(monto);
+        return;
+      }
+    }
+  }
+  movimientos.forEach(m=> m.fecha && addTo(m.fecha, m.tipo, m.monto));
+  gastosFijos.forEach(f=> f.fecha && addTo(f.fecha, 'gasto', f.monto));
+
+  const maxVal = Math.max(1, ...weeks.map(w=>Math.max(w.ing,w.gas)));
+  const W = 300, H = 150, padBottom = 20, padTop = 6;
+  const groupW = W / numWeeks;
+  const barW = groupW * 0.32;
+  const scale = v => (v/maxVal) * (H - padBottom - padTop);
+
+  let bars = '';
+  weeks.forEach((w, i)=>{
+    const cx = i*groupW + groupW/2;
+    const ingH = scale(w.ing);
+    const gasH = scale(w.gas);
+    const ingX = cx - barW - 1;
+    const gasX = cx + 1;
+    bars += `<rect x="${ingX}" y="${H-padBottom-ingH}" width="${barW}" height="${ingH}" rx="2" fill="var(--green)"/>`;
+    bars += `<rect x="${gasX}" y="${H-padBottom-gasH}" width="${barW}" height="${gasH}" rx="2" fill="var(--red)"/>`;
+    const lbl = (w.start.getMonth()+1)+'/'+w.start.getDate();
+    bars += `<text x="${cx}" y="${H-4}" text-anchor="middle" font-size="9" fill="var(--muted)">${lbl}</text>`;
+  });
+
+  document.getElementById('weeklyChart').innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">${bars}</svg>`;
+}
+
+function renderPorCobrar(){
+  const pend = document.getElementById('cobPendList');
+  const pag = document.getElementById('cobPagList');
+
+  const pendientes = porCobrar.filter(c=>!c.pagado).sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+  const pagados = porCobrar.filter(c=>c.pagado).sort((a,b)=>(b.fechaPago||'').localeCompare(a.fechaPago||''));
+
+  pend.innerHTML = pendientes.length===0
+    ? '<div class="empty">No tienes clientes pendientes de pago.</div>'
+    : pendientes.map(c => `
+      <div class="row">
+        <div>
+          <div class="desc">${escapeHtml(c.cliente)}</div>
+          <div class="meta">${escapeHtml(c.desc)} · Costo ${fmt(c.costo)} · ${c.fecha||''}</div>
+        </div>
+        <div class="item-right">
+          <span class="amt neg" style="margin-right:6px;">${fmt(c.monto)}</span>
+        </div>
+      </div>
+      <div style="display:flex; gap:6px; margin:-4px 0 10px;">
+        <button class="btn-primary" style="margin-top:0; flex:1; background:var(--green);" data-pay="${c.id}">Marcar como pagado</button>
+        <button class="btn-del" data-del-cob="${c.id}">Borrar</button>
+      </div>
+    `).join('');
+
+  pag.innerHTML = pagados.length===0
+    ? '<div class="empty">Aun no hay pagos registrados aqui.</div>'
+    : pagados.map(c => `
+      <div class="row">
+        <div>
+          <div class="desc">${escapeHtml(c.cliente)}</div>
+          <div class="meta">${escapeHtml(c.desc)} · Pagado el ${c.fechaPago||''}</div>
+        </div>
+        <div class="item-right">
+          <span class="amt pos" style="margin-right:8px;">+${fmt(c.monto)}</span>
+          <button class="btn-del" data-del-cob="${c.id}">Borrar</button>
+        </div>
+      </div>
+    `).join('');
+
+  document.querySelectorAll('[data-pay]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const c = porCobrar.find(x=>x.id===btn.dataset.pay);
+      if(!c) return;
+      c.pagado = true;
+      c.fechaPago = todayStr();
+      movimientos.push({
+        id: Date.now().toString(),
+        tipo: 'ingreso',
+        desc: 'Pago de ' + c.cliente + ' - ' + c.desc,
+        monto: c.monto,
+        fecha: c.fechaPago
+      });
+      await savePorCobrar();
+      await saveMov();
+      renderAll();
+    });
+  });
+  document.querySelectorAll('[data-del-cob]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      porCobrar = porCobrar.filter(c=>c.id!==btn.dataset.delCob);
+      await savePorCobrar();
+      renderAll();
+    });
+  });
+}
+
+function renderAll(){
+  renderResumen();
+  renderMovs();
+  renderProds();
+  renderFijos();
+  renderCalendario();
+  renderCalPagos();
+  renderWeeklyChart();
+  renderPorCobrar();
+}
+
+function setupTabs(){
+  document.querySelectorAll('.tab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      document.querySelectorAll('.tab-content').forEach(c=>c.classList.add('hidden'));
+      document.getElementById('tab-'+tab.dataset.tab).classList.remove('hidden');
+    });
+  });
+}
+
+function setupForms(){
+  document.getElementById('saveMetaBtn').addEventListener('click', async ()=>{
+    const v = Number(document.getElementById('metaInput').value);
+    if(!v || v<=0){ alert('Ingresa un monto valido para tu meta.'); return; }
+    meta = v;
+    await saveMeta();
+    renderAll();
+  });
+
+  document.getElementById('btnIngreso').addEventListener('click', ()=>{
+    tipoSel = 'ingreso';
+    document.getElementById('btnIngreso').classList.add('sel-ingreso');
+    document.getElementById('btnGasto').classList.remove('sel-gasto');
+  });
+  document.getElementById('btnGasto').addEventListener('click', ()=>{
+    tipoSel = 'gasto';
+    document.getElementById('btnGasto').classList.add('sel-gasto');
+    document.getElementById('btnIngreso').classList.remove('sel-ingreso');
+  });
+
+  document.getElementById('movFecha').value = todayStr();
+  document.getElementById('addMovBtn').addEventListener('click', async ()=>{
+    const desc = document.getElementById('movDesc').value.trim();
+    const monto = Number(document.getElementById('movMonto').value);
+    const fecha = document.getElementById('movFecha').value || todayStr();
+
+    if(!desc || !monto || monto <= 0){ alert('Completa los campos correctamente.'); return; }
+
+    movimientos.push({ id: Date.now().toString(), tipo: tipoSel, desc, monto, fecha });
+    await saveMov();
+
+    document.getElementById('movDesc').value = '';
+    document.getElementById('movMonto').value = '';
+    renderAll();
+  });
+
+  document.getElementById('addProdBtn').addEventListener('click', async ()=>{
+    const nombre = document.getElementById('prodNombre').value.trim();
+    const costo = Number(document.getElementById('prodCosto').value);
+    const precio = Number(document.getElementById('prodPrecio').value);
+    const fecha = todayStr();
+
+    if(!nombre || costo < 0 || precio <= 0){ alert('Completa los campos de reparacion/producto.'); return; }
+
+    productos.push({ id: Date.now().toString(), nombre, costo, precio, fecha });
+    await saveProd();
+
+    document.getElementById('prodNombre').value = '';
+    document.getElementById('prodCosto').value = '';
+    document.getElementById('prodPrecio').value = '';
+    renderAll();
+  });
+
+  document.getElementById('fijoCategoria').addEventListener('change', (e)=>{
+    if(e.target.value === 'otro'){
+      document.getElementById('fijoOtroWrap').classList.remove('hidden');
+    } else {
+      document.getElementById('fijoOtroWrap').classList.add('hidden');
+    }
+  });
+
+  document.getElementById('fijoFecha').value = todayStr();
+  document.getElementById('addFijoBtn').addEventListener('click', async ()=>{
+    const catSelect = document.getElementById('fijoCategoria').value;
+    const catOtro = document.getElementById('fijoOtroNombre').value.trim();
+    const categoria = catSelect === 'otro' ? catOtro : catSelect;
+    const monto = Number(document.getElementById('fijoMonto').value);
+    const fecha = document.getElementById('fijoFecha').value || todayStr();
+
+    if(!categoria || !monto || monto <= 0){ alert('Completa la información del gasto fijo.'); return; }
+
+    gastosFijos.push({ id: Date.now().toString(), categoria, monto, fecha });
+    await saveFijos();
+
+    document.getElementById('fijoOtroNombre').value = '';
+    document.getElementById('fijoMonto').value = '';
+    renderAll();
+  });
+
+  document.getElementById('cobFecha').value = todayStr();
+  document.getElementById('addCobBtn').addEventListener('click', async ()=>{
+    const cliente = document.getElementById('cobNombre').value.trim();
+    const desc = document.getElementById('cobDesc').value.trim();
+    const costo = Number(document.getElementById('cobCosto').value || 0);
+    const monto = Number(document.getElementById('cobMonto').value);
+    const fecha = document.getElementById('cobFecha').value || todayStr();
+
+    if(!cliente || !desc || !monto || monto <= 0){ alert('Completa los datos del cliente y monto.'); return; }
+
+    porCobrar.push({ id: Date.now().toString(), cliente, desc, costo, monto, fecha, pagado: false, fechaPago: '' });
+    await savePorCobrar();
+
+    document.getElementById('cobNombre').value = '';
+    document.getElementById('cobDesc').value = '';
+    document.getElementById('cobCosto').value = '';
+    document.getElementById('cobMonto').value = '';
+    renderAll();
+  });
+}
+
+async function init(){
+  await loadData();
+  setupTabs();
+  setupCalendar();
+  setupForms();
+  renderAll();
+  document.getElementById('loadingMsg').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>
