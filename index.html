@@ -52,7 +52,7 @@
   .progress-inner{background:var(--green); height:100%; border-radius:999px; transition:width .3s;}
   .progress-text{font-size:12px; color:var(--muted); margin-top:6px; text-align:right;}
   .row{
-    display:flex; justify-content:space-between; align-items:center;
+    display:flex; justify-space-between:space-between; align-items:center;
     padding:10px 0; border-bottom:1px solid var(--border);
   }
   .row:last-child{border-bottom:none;}
@@ -395,13 +395,22 @@ function renderResumen(){
 
   const now = new Date();
   const ym = now.toISOString().slice(0,7);
+  
+  // 1. Ganancias de productos
+  const gananciaProd = productos.reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
+  const gananciaProdMes = productos.filter(p => (p.fecha||'').slice(0,7) === ym)
+                                   .reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
+
+  // 2. Movimientos del mes actual (incluyendo ganancias de productos en el mes)
   const delMes = movimientos.filter(m => (m.fecha||'').slice(0,7) === ym);
   const fijosDelMes = gastosFijos.filter(f => (f.fecha||'').slice(0,7) === ym);
   const cobDelMes = porCobrar.filter(c => (c.fecha||'').slice(0,7) === ym);
-  const mesIng = delMes.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0);
+  
+  const mesIng = delMes.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0) + gananciaProdMes;
   const mesGas = delMes.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
     + fijosDelMes.reduce((a,b)=>a+Number(b.monto),0)
     + cobDelMes.reduce((a,b)=>a+Number(b.costo),0);
+    
   document.getElementById('mesIngresos').textContent = fmt(mesIng);
   document.getElementById('mesGastos').textContent = fmt(mesGas);
 
@@ -411,18 +420,22 @@ function renderResumen(){
     ? pct + '% de la meta (' + fmt(mesIng) + ' de ' + fmt(meta) + ')'
     : 'Define tu meta mensual arriba';
 
-  const totIng = movimientos.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0);
+  // 3. Totales generales: Suma de ingresos manuales + Ganancias de productos
+  const ingManuales = movimientos.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0);
+  const totIng = ingManuales + gananciaProd;
+  
   const totGas = movimientos.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
     + gastosFijos.reduce((a,b)=>a+Number(b.monto),0)
     + porCobrar.reduce((a,b)=>a+Number(b.costo),0);
+    
   document.getElementById('totIngresos').textContent = fmt(totIng);
   document.getElementById('totGastos').textContent = fmt(totGas);
+  
   const neto = totIng - totGas;
   const netoEl = document.getElementById('totNeto');
   netoEl.textContent = fmt(neto);
   netoEl.style.color = neto >= 0 ? 'var(--green)' : 'var(--red)';
 
-  const gananciaProd = productos.reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
   document.getElementById('totGananciaProd').textContent = fmt(gananciaProd);
 
   const pendiente = porCobrar.filter(c=>!c.pagado).reduce((a,b)=>a+Number(b.monto),0);
