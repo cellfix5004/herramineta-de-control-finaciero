@@ -337,7 +337,6 @@ const storage = {
 const fmt = n => 'L ' + Number(n||0).toLocaleString('es-HN', {maximumFractionDigits:0});
 const todayStr = () => new Date().toISOString().slice(0,10);
 
-// Función para obtener el identificador del ciclo actual (ej: "2026-09-15")
 function getCicloActual(dateObj = new Date()) {
   let year = dateObj.getFullYear();
   let month = dateObj.getMonth();
@@ -349,7 +348,6 @@ function getCicloActual(dateObj = new Date()) {
   return `${year}-${String(month + 1).padStart(2, '0')}-15`;
 }
 
-// Verifica si la fecha dada está dentro del ciclo actual
 function estaEnCicloActual(fechaStr) {
   if(!fechaStr) return false;
   const f = new Date(fechaStr + 'T00:00:00');
@@ -374,13 +372,12 @@ async function loadData(){
     const gf = await storage.get('gastosFijos'); 
     gastosFijos = gf ? JSON.parse(gf.value) : [];
     
-    // Auto-reiniciar pagados si cambió el ciclo (después del 15)
     const cicloHoy = getCicloActual();
     let actualizado = false;
     gastosFijos.forEach(f => {
       if(!f.cicloActual) f.cicloActual = cicloHoy;
       if(f.cicloActual !== cicloHoy) {
-        f.pagado = 0; // Reiniciar abono al iniciar nuevo ciclo
+        f.pagado = 0; 
         f.cicloActual = cicloHoy;
         actualizado = true;
       }
@@ -416,15 +413,15 @@ function renderResumen(){
 
   // 2. Movimientos y gastos del ciclo (15 al 15)
   const delCiclo = movimientos.filter(m => estaEnCicloActual(m.fecha));
-  const cobDelCiclo = porCobrar.filter(c => estaEnCicloActual(c.fecha));
+  // IMPORTANTE: Solo tomamos el costo de trabajos PENDIENTES de cobro en el ciclo
+  const cobDelCicloPendientes = porCobrar.filter(c => !c.pagado && estaEnCicloActual(c.fecha));
   
-  // Abonos de gastos fijos efectivamente pagados
   const fijosPagadosEfectivos = gastosFijos.reduce((a,b)=>a+Number(b.pagado||0),0);
 
   const mesIng = delCiclo.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0) + gananciaProdCiclo;
   const mesGas = delCiclo.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
     + fijosPagadosEfectivos
-    + cobDelCiclo.reduce((a,b)=>a+Number(b.costo),0);
+    + cobDelCicloPendientes.reduce((a,b)=>a+Number(b.costo),0);
     
   document.getElementById('mesIngresos').textContent = fmt(mesIng);
   document.getElementById('mesGastos').textContent = fmt(mesGas);
@@ -436,15 +433,17 @@ function renderResumen(){
     : 'Define tu meta mensual arriba';
 
   // 3. Totales de Gastos reales desembolsados
+  // Se toman solo los costos invertidos que siguen PENDIENTES de pago
+  const cobPendientesGlobales = porCobrar.filter(c => !c.pagado);
   const totGas = movimientos.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
     + fijosPagadosEfectivos
-    + porCobrar.reduce((a,b)=>a+Number(b.costo),0);
+    + cobPendientesGlobales.reduce((a,b)=>a+Number(b.costo),0);
     
   // 4. Ingresos Brutos
   const ingManuales = movimientos.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0);
   const totIngBruto = ingManuales + gananciaProd;
 
-  // 5. Disponible en Caja Real (Ingresos - Gastos Pagados Efectivos)
+  // 5. Disponible en Caja Real (Ingresos - Gastos Pagados / Inversiones Pendientes)
   const totIngCajaReal = totIngBruto - totGas;
 
   document.getElementById('totIngresos').textContent = fmt(totIngCajaReal);
