@@ -108,14 +108,14 @@
       </div>
 
       <div class="card">
-        <h2>Progreso del mes actual</h2>
+        <h2>Progreso del ciclo actual (15 al 15)</h2>
         <div class="stat-grid">
           <div class="stat">
-            <div class="label">Ingresos del mes</div>
+            <div class="label">Ingresos del ciclo</div>
             <div class="val" id="mesIngresos">L 0</div>
           </div>
           <div class="stat">
-            <div class="label">Gastos del mes</div>
+            <div class="label">Gastos del ciclo</div>
             <div class="val" id="mesGastos">L 0</div>
           </div>
         </div>
@@ -168,7 +168,7 @@
             <div class="val" id="totIngresos">L 0</div>
           </div>
           <div class="stat">
-            <div class="label">Total gastos</div>
+            <div class="label">Total gastos pagados</div>
             <div class="val" id="totGastos">L 0</div>
           </div>
           <div class="stat">
@@ -233,7 +233,7 @@
     <!-- GASTOS FIJOS -->
     <div id="tab-fijos" class="tab-content hidden">
       <div class="card">
-        <h2>Agregar gasto de funcionamiento</h2>
+        <h2>Agregar presupuesto de gasto fijo</h2>
         <label for="fijoCategoria">Categoria</label>
         <select id="fijoCategoria">
           <option value="Luz">Luz</option>
@@ -242,30 +242,34 @@
           <option value="Combustible">Combustible</option>
           <option value="Internet">Internet</option>
           <option value="Telefono">Telefono</option>
-          <option value="Salarios">Salarios</option>
+          <option value="Salarios">Salarios / Chalán</option>
           <option value="otro">Otro (escribir abajo)</option>
         </select>
         <div id="fijoOtroWrap" class="hidden">
           <label for="fijoOtroNombre">Nombre del gasto</label>
           <input type="text" id="fijoOtroNombre" placeholder="Ej. Mantenimiento de equipo">
         </div>
-        <label for="fijoMonto">Monto (L)</label>
-        <input type="number" id="fijoMonto" placeholder="Ej. 1200" min="0" step="1">
-        <label for="fijoFecha">Fecha</label>
-        <input type="date" id="fijoFecha">
-        <button class="btn-primary" id="addFijoBtn">Agregar gasto fijo</button>
+        <label for="fijoMonto">Monto estimado a pagar en el ciclo (L)</label>
+        <input type="number" id="fijoMonto" placeholder="Ej. 7000" min="0" step="1">
+        <button class="btn-primary" id="addFijoBtn">Guardar presupuesto fijo</button>
       </div>
 
       <div class="card">
-        <h2>Gastos fijos del mes actual</h2>
-        <div class="stat">
-          <div class="label">Total del mes</div>
-          <div class="val" id="fijosMesTotal">L 0</div>
+        <h2>Gastos fijos del ciclo (15 al 15)</h2>
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="label">Total pagado</div>
+            <div class="val" id="fijosPagadoTotal" style="color:var(--green);">L 0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Total por pagar</div>
+            <div class="val" id="fijosPendienteTotal" style="color:var(--red);">L 0</div>
+          </div>
         </div>
       </div>
 
       <div class="card">
-        <h2>Historial de gastos fijos</h2>
+        <h2>Control de pagos del ciclo</h2>
         <div id="fijosList"></div>
       </div>
     </div>
@@ -333,6 +337,25 @@ const storage = {
 const fmt = n => 'L ' + Number(n||0).toLocaleString('es-HN', {maximumFractionDigits:0});
 const todayStr = () => new Date().toISOString().slice(0,10);
 
+// Función para obtener el identificador del ciclo actual (ej: "2026-09-15")
+function getCicloActual(dateObj = new Date()) {
+  let year = dateObj.getFullYear();
+  let month = dateObj.getMonth();
+  let day = dateObj.getDate();
+  if (day < 15) {
+    month--;
+    if (month < 0) { month = 11; year--; }
+  }
+  return `${year}-${String(month + 1).padStart(2, '0')}-15`;
+}
+
+// Verifica si la fecha dada está dentro del ciclo actual
+function estaEnCicloActual(fechaStr) {
+  if(!fechaStr) return false;
+  const f = new Date(fechaStr + 'T00:00:00');
+  return getCicloActual(f) === getCicloActual();
+}
+
 let meta = 0;
 let movimientos = []; 
 let productos = []; 
@@ -344,22 +367,27 @@ let calDate = new Date();
 let selectedDate = null;
 
 async function loadData(){
-  try{
-    const m = await storage.get('meta');
-    meta = m ? Number(JSON.parse(m.value)) : 0;
-  }catch(e){ meta = 0; }
-  try{
-    const mv = await storage.get('movimientos');
-    movimientos = mv ? JSON.parse(mv.value) : [];
-  }catch(e){ movimientos = []; }
-  try{
-    const pr = await storage.get('productos');
-    productos = pr ? JSON.parse(pr.value) : [];
-  }catch(e){ productos = []; }
-  try{
-    const gf = await storage.get('gastosFijos');
+  try{ const m = await storage.get('meta'); meta = m ? Number(JSON.parse(m.value)) : 0; }catch(e){ meta = 0; }
+  try{ const mv = await storage.get('movimientos'); movimientos = mv ? JSON.parse(mv.value) : []; }catch(e){ movimientos = []; }
+  try{ const pr = await storage.get('productos'); productos = pr ? JSON.parse(pr.value) : []; }catch(e){ productos = []; }
+  try{ 
+    const gf = await storage.get('gastosFijos'); 
     gastosFijos = gf ? JSON.parse(gf.value) : [];
+    
+    // Auto-reiniciar pagados si cambió el ciclo (después del 15)
+    const cicloHoy = getCicloActual();
+    let actualizado = false;
+    gastosFijos.forEach(f => {
+      if(!f.cicloActual) f.cicloActual = cicloHoy;
+      if(f.cicloActual !== cicloHoy) {
+        f.pagado = 0; // Reiniciar abono al iniciar nuevo ciclo
+        f.cicloActual = cicloHoy;
+        actualizado = true;
+      }
+    });
+    if(actualizado) await saveFijos();
   }catch(e){ gastosFijos = []; }
+
   try{
     const dp = await storage.get('diasPago');
     diasPago = dp ? JSON.parse(dp.value) : [];
@@ -371,45 +399,32 @@ async function loadData(){
   }catch(e){ porCobrar = []; }
 }
 
-async function saveMeta(){
-  try{ await storage.set('meta', JSON.stringify(meta)); }catch(e){}
-}
-async function saveMov(){
-  try{ await storage.set('movimientos', JSON.stringify(movimientos)); }catch(e){}
-}
-async function saveProd(){
-  try{ await storage.set('productos', JSON.stringify(productos)); }catch(e){}
-}
-async function saveFijos(){
-  try{ await storage.set('gastosFijos', JSON.stringify(gastosFijos)); }catch(e){}
-}
-async function saveDiasPago(){
-  try{ await storage.set('diasPago', JSON.stringify(diasPago)); }catch(e){}
-}
-async function savePorCobrar(){
-  try{ await storage.set('porCobrar', JSON.stringify(porCobrar)); }catch(e){}
-}
+async function saveMeta(){ try{ await storage.set('meta', JSON.stringify(meta)); }catch(e){} }
+async function saveMov(){ try{ await storage.set('movimientos', JSON.stringify(movimientos)); }catch(e){} }
+async function saveProd(){ try{ await storage.set('productos', JSON.stringify(productos)); }catch(e){} }
+async function saveFijos(){ try{ await storage.set('gastosFijos', JSON.stringify(gastosFijos)); }catch(e){} }
+async function saveDiasPago(){ try{ await storage.set('diasPago', JSON.stringify(diasPago)); }catch(e){} }
+async function savePorCobrar(){ try{ await storage.set('porCobrar', JSON.stringify(porCobrar)); }catch(e){} }
 
 function renderResumen(){
   document.getElementById('metaInput').value = meta || '';
 
-  const now = new Date();
-  const ym = now.toISOString().slice(0,7);
-  
   // 1. Ganancias por productos
   const gananciaProd = productos.reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
-  const gananciaProdMes = productos.filter(p => (p.fecha||'').slice(0,7) === ym)
-                                   .reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
+  const gananciaProdCiclo = productos.filter(p => estaEnCicloActual(p.fecha))
+                                     .reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
 
-  // 2. Movimientos y gastos del mes actual
-  const delMes = movimientos.filter(m => (m.fecha||'').slice(0,7) === ym);
-  const fijosDelMes = gastosFijos.filter(f => (f.fecha||'').slice(0,7) === ym);
-  const cobDelMes = porCobrar.filter(c => (c.fecha||'').slice(0,7) === ym);
+  // 2. Movimientos y gastos del ciclo (15 al 15)
+  const delCiclo = movimientos.filter(m => estaEnCicloActual(m.fecha));
+  const cobDelCiclo = porCobrar.filter(c => estaEnCicloActual(c.fecha));
   
-  const mesIng = delMes.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0) + gananciaProdMes;
-  const mesGas = delMes.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
-    + fijosDelMes.reduce((a,b)=>a+Number(b.monto),0)
-    + cobDelMes.reduce((a,b)=>a+Number(b.costo),0);
+  // Abonos de gastos fijos efectivamente pagados
+  const fijosPagadosEfectivos = gastosFijos.reduce((a,b)=>a+Number(b.pagado||0),0);
+
+  const mesIng = delCiclo.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0) + gananciaProdCiclo;
+  const mesGas = delCiclo.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
+    + fijosPagadosEfectivos
+    + cobDelCiclo.reduce((a,b)=>a+Number(b.costo),0);
     
   document.getElementById('mesIngresos').textContent = fmt(mesIng);
   document.getElementById('mesGastos').textContent = fmt(mesGas);
@@ -420,17 +435,16 @@ function renderResumen(){
     ? pct + '% de la meta (' + fmt(mesIng) + ' de ' + fmt(meta) + ')'
     : 'Define tu meta mensual arriba';
 
-  // 3. Totales de Gastos acumulados
+  // 3. Totales de Gastos reales desembolsados
   const totGas = movimientos.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
-    + gastosFijos.reduce((a,b)=>a+Number(b.monto),0)
+    + fijosPagadosEfectivos
     + porCobrar.reduce((a,b)=>a+Number(b.costo),0);
     
-  // 4. Cálculo de Ingresos Brutos totales
+  // 4. Ingresos Brutos
   const ingManuales = movimientos.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0);
   const totIngBruto = ingManuales + gananciaProd;
 
-  // 5. Total Ingresos (Caja Real Disponible)
-  // Se restan inmediatamente todos los gastos manuales, fijos y repuestos/inversiones pendientes de cobro
+  // 5. Disponible en Caja Real (Ingresos - Gastos Pagados Efectivos)
   const totIngCajaReal = totIngBruto - totGas;
 
   document.getElementById('totIngresos').textContent = fmt(totIngCajaReal);
@@ -507,30 +521,61 @@ function renderProds(){
 }
 
 function renderFijos(){
-  const now = new Date();
-  const ym = now.toISOString().slice(0,7);
-  const delMes = gastosFijos.filter(f => (f.fecha||'').slice(0,7) === ym);
-  const totalMes = delMes.reduce((a,b)=>a+Number(b.monto),0);
-  document.getElementById('fijosMesTotal').textContent = fmt(totalMes);
+  const totalPagado = gastosFijos.reduce((a,b)=>a+Number(b.pagado||0),0);
+  const totalPresupuesto = gastosFijos.reduce((a,b)=>a+Number(b.monto||0),0);
+  const totalPendiente = Math.max(0, totalPresupuesto - totalPagado);
+
+  document.getElementById('fijosPagadoTotal').textContent = fmt(totalPagado);
+  document.getElementById('fijosPendienteTotal').textContent = fmt(totalPendiente);
 
   const el = document.getElementById('fijosList');
   if(gastosFijos.length===0){
-    el.innerHTML = '<div class="empty">Todavia no hay gastos fijos registrados.</div>';
+    el.innerHTML = '<div class="empty">Todavia no hay gastos fijos configurados.</div>';
     return;
   }
-  const sorted = [...gastosFijos].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
-  el.innerHTML = sorted.map(f => `
-    <div class="row">
-      <div>
-        <div class="desc">${escapeHtml(f.categoria)}</div>
-        <div class="meta">${f.fecha||''}</div>
+
+  el.innerHTML = gastosFijos.map(f => {
+    const pagado = Number(f.pagado || 0);
+    const montoTotal = Number(f.monto || 0);
+    const restan = Math.max(0, montoTotal - pagado);
+    const completado = restan === 0;
+
+    return `
+    <div class="row" style="flex-direction:column; align-items:stretch; gap:6px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="desc">${escapeHtml(f.categoria)}</div>
+          <div class="meta">Meta: ${fmt(montoTotal)} · Pagado: ${fmt(pagado)}</div>
+        </div>
+        <div>
+          <span class="amt ${completado?'pos':'neg'}">${completado ? 'Saldado' : 'Resta ' + fmt(restan)}</span>
+          <button class="btn-del" data-del-fijo="${f.id}"><i>Borrar</i></button>
+        </div>
       </div>
-      <div class="item-right">
-        <span class="amt neg">-${fmt(f.monto)}</span>
-        <button class="btn-del" data-del-fijo="${f.id}"><i>Borrar</i></button>
-      </div>
-    </div>
-  `).join('');
+      ${!completado ? `
+      <div style="display:flex; gap:6px; margin-top:4px;">
+        <input type="number" id="payInput-${f.id}" placeholder="Monto abonado (L)" min="1" step="1" style="flex:1;">
+        <button class="btn-primary" style="margin-top:0; padding:6px 10px; width:auto; background:var(--green);" data-pay-fijo="${f.id}">Abonar</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-pay-fijo]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.payFijo;
+      const inp = document.getElementById(`payInput-${id}`);
+      const val = Number(inp.value);
+      if(!val || val <= 0){ alert('Ingresa un monto válido.'); return; }
+      
+      const f = gastosFijos.find(x=>x.id===id);
+      if(f){
+        f.pagado = Number(f.pagado || 0) + val;
+        await saveFijos();
+        renderAll();
+      }
+    });
+  });
+
   el.querySelectorAll('[data-del-fijo]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       gastosFijos = gastosFijos.filter(f=>f.id!==btn.dataset.delFijo);
@@ -699,7 +744,6 @@ function renderWeeklyChart(){
     }
   }
   movimientos.forEach(m=> m.fecha && addTo(m.fecha, m.tipo, m.monto));
-  gastosFijos.forEach(f=> f.fecha && addTo(f.fecha, 'gasto', f.monto));
 
   const maxVal = Math.max(1, ...weeks.map(w=>Math.max(w.ing,w.gas)));
   const W = 300, H = 150, padBottom = 20, padTop = 6;
@@ -874,17 +918,21 @@ function setupForms(){
     }
   });
 
-  document.getElementById('fijoFecha').value = todayStr();
   document.getElementById('addFijoBtn').addEventListener('click', async ()=>{
     const catSelect = document.getElementById('fijoCategoria').value;
     const catOtro = document.getElementById('fijoOtroNombre').value.trim();
     const categoria = catSelect === 'otro' ? catOtro : catSelect;
     const monto = Number(document.getElementById('fijoMonto').value);
-    const fecha = document.getElementById('fijoFecha').value || todayStr();
 
     if(!categoria || !monto || monto <= 0){ alert('Completa la información del gasto fijo.'); return; }
 
-    gastosFijos.push({ id: Date.now().toString(), categoria, monto, fecha });
+    gastosFijos.push({ 
+      id: Date.now().toString(), 
+      categoria, 
+      monto, 
+      pagado: 0,
+      cicloActual: getCicloActual()
+    });
     await saveFijos();
 
     document.getElementById('fijoOtroNombre').value = '';
@@ -927,4 +975,3 @@ init();
 </script>
 </body>
 </html>
-
