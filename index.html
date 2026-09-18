@@ -351,13 +351,15 @@
       <div class="card">
         <h2>Agregar al Inventario (Préstamo)</h2>
         <label for="invNombre">Nombre del producto / repuesto</label>
-        <input type="text" id="invNombre" placeholder="Ej. Fundas de silicón (Pack 10)">
-        <label for="invCosto">Precio de Costo (L)</label>
-        <input type="number" id="invCosto" placeholder="Ej. 300" min="0" step="1">
+        <input type="text" id="invNombre" placeholder="Ej. Cobertores de silicón">
+        <label for="invCantidad">Cantidad comprada (unidades)</label>
+        <input type="number" id="invCantidad" placeholder="Ej. 10" min="1" step="1">
+        <label for="invCosto">Precio de Costo c/u (L)</label>
+        <input type="number" id="invCosto" placeholder="Ej. 50" min="0" step="1">
         <label for="invPrecioNorm">Precio de Venta Normal (L)</label>
-        <input type="number" id="invPrecioNorm" placeholder="Ej. 600" min="0" step="1">
+        <input type="number" id="invPrecioNorm" placeholder="Ej. 120" min="0" step="1">
         <label for="invPrecioEsp">Precio Especial VIP (L)</label>
-        <input type="number" id="invPrecioEsp" placeholder="Ej. 500" min="0" step="1">
+        <input type="number" id="invPrecioEsp" placeholder="Ej. 100" min="0" step="1">
         <button class="btn-primary" id="addInvBtn">Agregar a Inventario</button>
       </div>
 
@@ -555,7 +557,6 @@ function renderPrestamo(){
     ? pct + '% liquidado (' + fmt(recuperado) + ' de ' + fmt(totalAPagar) + ')'
     : 'Ingresa los datos de tu préstamo arriba';
 
-  // Mostrar u ocultar botón de transferencia a caja
   const transferWrap = document.getElementById('prestTransferWrap');
   if (gananciaDisponibleTransferir > 0) {
     transferWrap.classList.remove('hidden');
@@ -564,7 +565,6 @@ function renderPrestamo(){
     transferWrap.classList.add('hidden');
   }
 
-  // Gráfica de Préstamo (SVG)
   const W = 300, H = 30;
   const scaleRec = totalAPagar > 0 ? (recuperado / totalAPagar) * W : 0;
   document.getElementById('prestChart').innerHTML = `
@@ -574,34 +574,43 @@ function renderPrestamo(){
     </svg>
   `;
 
-  // Renderizar inventario
   const el = document.getElementById('invList');
   if (inventarioPrestamo.length === 0) {
     el.innerHTML = '<div class="empty">No hay productos en este inventario.</div>';
     return;
   }
 
-  el.innerHTML = inventarioPrestamo.map(item => `
+  el.innerHTML = inventarioPrestamo.map(item => {
+    const stock = Number(item.cantidad || 0);
+    const agotado = stock <= 0;
+
+    return `
     <div class="row" style="flex-direction:column; align-items:stretch; gap:6px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
-          <div class="desc">${escapeHtml(item.nombre)}</div>
+          <div class="desc">${escapeHtml(item.nombre)} <span class="badge ${agotado?'gasto':'ingreso'}">${stock} en stock</span></div>
           <div class="meta">Costo: ${fmt(item.costo)} · Normal: ${fmt(item.precioNorm)} · VIP: ${fmt(item.precioEsp)}</div>
         </div>
         <button class="btn-del" data-del-inv="${item.id}"><i>Borrar</i></button>
       </div>
       <div style="display:flex; gap:6px;">
-        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1;" data-sell-norm="${item.id}">Vender Normal (${fmt(item.precioNorm)})</button>
-        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1; background:var(--green);" data-sell-esp="${item.id}">Vender VIP (${fmt(item.precioEsp)})</button>
+        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1;" data-sell-norm="${item.id}" ${agotado?'disabled style="opacity:0.5; cursor:not-allowed;"':''}>
+          ${agotado ? 'Agotado' : 'Vender 1 Normal (' + fmt(item.precioNorm) + ')'}
+        </button>
+        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1; background:var(--green);" data-sell-esp="${item.id}" ${agotado?'disabled style="opacity:0.5; cursor:not-allowed;"':''}>
+          ${agotado ? 'Agotado' : 'Vender 1 VIP (' + fmt(item.precioEsp) + ')'}
+        </button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   el.querySelectorAll('[data-sell-norm]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const item = inventarioPrestamo.find(x => x.id === btn.dataset.sellNorm);
-      if (item) {
+      if (item && Number(item.cantidad) > 0) {
+        item.cantidad = Number(item.cantidad) - 1;
         prestamo.acumuladoVentas = Number(prestamo.acumuladoVentas || 0) + Number(item.precioNorm);
+        await saveInventarioPrestamo();
         await savePrestamo();
         renderAll();
       }
@@ -611,8 +620,10 @@ function renderPrestamo(){
   el.querySelectorAll('[data-sell-esp]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const item = inventarioPrestamo.find(x => x.id === btn.dataset.sellEsp);
-      if (item) {
+      if (item && Number(item.cantidad) > 0) {
+        item.cantidad = Number(item.cantidad) - 1;
         prestamo.acumuladoVentas = Number(prestamo.acumuladoVentas || 0) + Number(item.precioEsp);
+        await saveInventarioPrestamo();
         await savePrestamo();
         renderAll();
       }
@@ -1139,15 +1150,17 @@ function setupForms(){
 
   document.getElementById('addInvBtn').addEventListener('click', async ()=>{
     const nombre = document.getElementById('invNombre').value.trim();
+    const cantidad = Number(document.getElementById('invCantidad').value || 1);
     const costo = Number(document.getElementById('invCosto').value || 0);
     const precioNorm = Number(document.getElementById('invPrecioNorm').value || 0);
     const precioEsp = Number(document.getElementById('invPrecioEsp').value || 0);
 
-    if(!nombre || precioNorm <= 0){ alert('Ingresa nombre y precio de venta válido.'); return; }
+    if(!nombre || cantidad <= 0 || precioNorm <= 0){ alert('Ingresa nombre, cantidad y precio de venta válido.'); return; }
 
     inventarioPrestamo.push({
       id: Date.now().toString(),
       nombre,
+      cantidad,
       costo,
       precioNorm,
       precioEsp: precioEsp || precioNorm
@@ -1156,6 +1169,7 @@ function setupForms(){
     await saveInventarioPrestamo();
 
     document.getElementById('invNombre').value = '';
+    document.getElementById('invCantidad').value = '';
     document.getElementById('invCosto').value = '';
     document.getElementById('invPrecioNorm').value = '';
     document.getElementById('invPrecioEsp').value = '';
