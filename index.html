@@ -96,6 +96,7 @@
       <div class="tab" data-tab="costos">Costos y ganancias</div>
       <div class="tab" data-tab="fijos">Gastos fijos</div>
       <div class="tab" data-tab="cobrar">Por cobrar</div>
+      <div class="tab" data-tab="prestamo">Préstamo</div>
     </div>
 
     <!-- RESUMEN -->
@@ -302,6 +303,70 @@
       </div>
     </div>
 
+    <!-- PRÉSTAMO E INVENTARIO -->
+    <div id="tab-prestamo" class="tab-content hidden">
+      <div class="card">
+        <h2>Configuración del Préstamo</h2>
+        <label for="prestMonto">Monto Prestado (L)</label>
+        <input type="number" id="prestMonto" placeholder="Ej. 1000" min="0" step="1">
+        <label for="prestInteres">Porcentaje de Interés (%)</label>
+        <input type="number" id="prestInteres" placeholder="Ej. 8" min="0" step="0.1">
+        <button class="btn-primary" id="savePrestBtn">Guardar / Actualizar Préstamo</button>
+      </div>
+
+      <div class="card">
+        <h2>Progreso de Liquidación de Deuda</h2>
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="label">Total a pagar (+Interés)</div>
+            <div class="val" id="prestTotalPagar">L 0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Monto Recuperado</div>
+            <div class="val" id="prestRecuperado" style="color:var(--green);">L 0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Deuda Pendiente</div>
+            <div class="val" id="prestDeudaPend" style="color:var(--red);">L 0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Ganancia Neta Extra</div>
+            <div class="val" id="prestGananciaExtra" style="color:var(--green);">L 0</div>
+          </div>
+        </div>
+
+        <div class="progress-outer"><div class="progress-inner" id="prestProgressBar" style="width:0%"></div></div>
+        <div class="progress-text" id="prestProgressText">0% liquidado</div>
+
+        <div id="prestChartWrap" style="margin-top:14px; text-align:center;">
+          <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Gráfica del Préstamo</div>
+          <div id="prestChart"></div>
+        </div>
+
+        <div id="prestTransferWrap" class="hidden" style="margin-top:14px;">
+          <button class="btn-primary" id="transferPrestGananciaBtn" style="background:var(--green);">Transferir ganancias a Caja</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Agregar al Inventario (Préstamo)</h2>
+        <label for="invNombre">Nombre del producto / repuesto</label>
+        <input type="text" id="invNombre" placeholder="Ej. Fundas de silicón (Pack 10)">
+        <label for="invCosto">Precio de Costo (L)</label>
+        <input type="number" id="invCosto" placeholder="Ej. 300" min="0" step="1">
+        <label for="invPrecioNorm">Precio de Venta Normal (L)</label>
+        <input type="number" id="invPrecioNorm" placeholder="Ej. 600" min="0" step="1">
+        <label for="invPrecioEsp">Precio Especial VIP (L)</label>
+        <input type="number" id="invPrecioEsp" placeholder="Ej. 500" min="0" step="1">
+        <button class="btn-primary" id="addInvBtn">Agregar a Inventario</button>
+      </div>
+
+      <div class="card">
+        <h2>Inventario Disponible</h2>
+        <div id="invList"></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -360,6 +425,9 @@ let productos = [];
 let gastosFijos = []; 
 let diasPago = []; 
 let porCobrar = []; 
+let prestamo = { monto: 0, interes: 0, acumuladoVentas: 0, transferido: 0 };
+let inventarioPrestamo = [];
+
 let tipoSel = 'ingreso';
 let calDate = new Date();
 let selectedDate = null;
@@ -394,6 +462,14 @@ async function loadData(){
     const pc = await storage.get('porCobrar');
     porCobrar = pc ? JSON.parse(pc.value) : [];
   }catch(e){ porCobrar = []; }
+  try{
+    const prs = await storage.get('prestamo');
+    prestamo = prs ? JSON.parse(prs.value) : { monto: 0, interes: 0, acumuladoVentas: 0, transferido: 0 };
+  }catch(e){ prestamo = { monto: 0, interes: 0, acumuladoVentas: 0, transferido: 0 }; }
+  try{
+    const inv = await storage.get('inventarioPrestamo');
+    inventarioPrestamo = inv ? JSON.parse(inv.value) : [];
+  }catch(e){ inventarioPrestamo = []; }
 }
 
 async function saveMeta(){ try{ await storage.set('meta', JSON.stringify(meta)); }catch(e){} }
@@ -402,18 +478,17 @@ async function saveProd(){ try{ await storage.set('productos', JSON.stringify(pr
 async function saveFijos(){ try{ await storage.set('gastosFijos', JSON.stringify(gastosFijos)); }catch(e){} }
 async function saveDiasPago(){ try{ await storage.set('diasPago', JSON.stringify(diasPago)); }catch(e){} }
 async function savePorCobrar(){ try{ await storage.set('porCobrar', JSON.stringify(porCobrar)); }catch(e){} }
+async function savePrestamo(){ try{ await storage.set('prestamo', JSON.stringify(prestamo)); }catch(e){} }
+async function saveInventarioPrestamo(){ try{ await storage.set('inventarioPrestamo', JSON.stringify(inventarioPrestamo)); }catch(e){} }
 
 function renderResumen(){
   document.getElementById('metaInput').value = meta || '';
 
-  // 1. Ganancias por productos
   const gananciaProd = productos.reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
   const gananciaProdCiclo = productos.filter(p => estaEnCicloActual(p.fecha))
                                      .reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
 
-  // 2. Movimientos y gastos del ciclo (15 al 15)
   const delCiclo = movimientos.filter(m => estaEnCicloActual(m.fecha));
-  // IMPORTANTE: Solo tomamos el costo de trabajos PENDIENTES de cobro en el ciclo
   const cobDelCicloPendientes = porCobrar.filter(c => !c.pagado && estaEnCicloActual(c.fecha));
   
   const fijosPagadosEfectivos = gastosFijos.reduce((a,b)=>a+Number(b.pagado||0),0);
@@ -432,24 +507,19 @@ function renderResumen(){
     ? pct + '% de la meta (' + fmt(mesIng) + ' de ' + fmt(meta) + ')'
     : 'Define tu meta mensual arriba';
 
-  // 3. Totales de Gastos reales desembolsados
-  // Se toman solo los costos invertidos que siguen PENDIENTES de pago
   const cobPendientesGlobales = porCobrar.filter(c => !c.pagado);
   const totGas = movimientos.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
     + fijosPagadosEfectivos
     + cobPendientesGlobales.reduce((a,b)=>a+Number(b.costo),0);
     
-  // 4. Ingresos Brutos
   const ingManuales = movimientos.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0);
   const totIngBruto = ingManuales + gananciaProd;
 
-  // 5. Disponible en Caja Real (Ingresos - Gastos Pagados / Inversiones Pendientes)
   const totIngCajaReal = totIngBruto - totGas;
 
   document.getElementById('totIngresos').textContent = fmt(totIngCajaReal);
   document.getElementById('totGastos').textContent = fmt(totGas);
   
-  // Ganancia Neta
   const neto = totIngBruto - totGas;
   const netoEl = document.getElementById('totNeto');
   netoEl.textContent = fmt(neto);
@@ -459,6 +529,103 @@ function renderResumen(){
 
   const pendiente = porCobrar.filter(c=>!c.pagado).reduce((a,b)=>a+Number(b.monto),0);
   document.getElementById('totPorCobrar').textContent = fmt(pendiente);
+}
+
+function renderPrestamo(){
+  document.getElementById('prestMonto').value = prestamo.monto || '';
+  document.getElementById('prestInteres').value = prestamo.interes || '';
+
+  const montoBase = Number(prestamo.monto || 0);
+  const pctInteres = Number(prestamo.interes || 0);
+  const totalAPagar = montoBase + (montoBase * (pctInteres / 100));
+  const ventas = Number(prestamo.acumuladoVentas || 0);
+  const recuperado = Math.min(totalAPagar, ventas);
+  const deudaPendiente = Math.max(0, totalAPagar - ventas);
+  const gananciaExtra = Math.max(0, ventas - totalAPagar);
+  const gananciaDisponibleTransferir = Math.max(0, gananciaExtra - Number(prestamo.transferido || 0));
+
+  document.getElementById('prestTotalPagar').textContent = fmt(totalAPagar);
+  document.getElementById('prestRecuperado').textContent = fmt(recuperado);
+  document.getElementById('prestDeudaPend').textContent = fmt(deudaPendiente);
+  document.getElementById('prestGananciaExtra').textContent = fmt(gananciaExtra);
+
+  const pct = totalAPagar > 0 ? Math.min(100, Math.round((recuperado / totalAPagar) * 100)) : 0;
+  document.getElementById('prestProgressBar').style.width = pct + '%';
+  document.getElementById('prestProgressText').textContent = totalAPagar > 0 
+    ? pct + '% liquidado (' + fmt(recuperado) + ' de ' + fmt(totalAPagar) + ')'
+    : 'Ingresa los datos de tu préstamo arriba';
+
+  // Mostrar u ocultar botón de transferencia a caja
+  const transferWrap = document.getElementById('prestTransferWrap');
+  if (gananciaDisponibleTransferir > 0) {
+    transferWrap.classList.remove('hidden');
+    document.getElementById('transferPrestGananciaBtn').textContent = `Transferir a Caja (${fmt(gananciaDisponibleTransferir)})`;
+  } else {
+    transferWrap.classList.add('hidden');
+  }
+
+  // Gráfica de Préstamo (SVG)
+  const W = 300, H = 30;
+  const scaleRec = totalAPagar > 0 ? (recuperado / totalAPagar) * W : 0;
+  document.getElementById('prestChart').innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+      <rect x="0" y="5" width="${W}" height="20" rx="4" fill="var(--redbg)"/>
+      <rect x="0" y="5" width="${scaleRec}" height="20" rx="4" fill="var(--green)"/>
+    </svg>
+  `;
+
+  // Renderizar inventario
+  const el = document.getElementById('invList');
+  if (inventarioPrestamo.length === 0) {
+    el.innerHTML = '<div class="empty">No hay productos en este inventario.</div>';
+    return;
+  }
+
+  el.innerHTML = inventarioPrestamo.map(item => `
+    <div class="row" style="flex-direction:column; align-items:stretch; gap:6px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="desc">${escapeHtml(item.nombre)}</div>
+          <div class="meta">Costo: ${fmt(item.costo)} · Normal: ${fmt(item.precioNorm)} · VIP: ${fmt(item.precioEsp)}</div>
+        </div>
+        <button class="btn-del" data-del-inv="${item.id}"><i>Borrar</i></button>
+      </div>
+      <div style="display:flex; gap:6px;">
+        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1;" data-sell-norm="${item.id}">Vender Normal (${fmt(item.precioNorm)})</button>
+        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1; background:var(--green);" data-sell-esp="${item.id}">Vender VIP (${fmt(item.precioEsp)})</button>
+      </div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('[data-sell-norm]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = inventarioPrestamo.find(x => x.id === btn.dataset.sellNorm);
+      if (item) {
+        prestamo.acumuladoVentas = Number(prestamo.acumuladoVentas || 0) + Number(item.precioNorm);
+        await savePrestamo();
+        renderAll();
+      }
+    });
+  });
+
+  el.querySelectorAll('[data-sell-esp]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = inventarioPrestamo.find(x => x.id === btn.dataset.sellEsp);
+      if (item) {
+        prestamo.acumuladoVentas = Number(prestamo.acumuladoVentas || 0) + Number(item.precioEsp);
+        await savePrestamo();
+        renderAll();
+      }
+    });
+  });
+
+  el.querySelectorAll('[data-del-inv]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      inventarioPrestamo = inventarioPrestamo.filter(x => x.id !== btn.dataset.delInv);
+      await saveInventarioPrestamo();
+      renderAll();
+    });
+  });
 }
 
 function renderMovs(){
@@ -843,6 +1010,7 @@ function renderAll(){
   renderCalPagos();
   renderWeeklyChart();
   renderPorCobrar();
+  renderPrestamo();
 }
 
 function setupTabs(){
@@ -957,6 +1125,67 @@ function setupForms(){
     document.getElementById('cobCosto').value = '';
     document.getElementById('cobMonto').value = '';
     renderAll();
+  });
+
+  document.getElementById('savePrestBtn').addEventListener('click', async ()=>{
+    const m = Number(document.getElementById('prestMonto').value || 0);
+    const i = Number(document.getElementById('prestInteres').value || 0);
+    
+    prestamo.monto = m;
+    prestamo.interes = i;
+    await savePrestamo();
+    renderAll();
+  });
+
+  document.getElementById('addInvBtn').addEventListener('click', async ()=>{
+    const nombre = document.getElementById('invNombre').value.trim();
+    const costo = Number(document.getElementById('invCosto').value || 0);
+    const precioNorm = Number(document.getElementById('invPrecioNorm').value || 0);
+    const precioEsp = Number(document.getElementById('invPrecioEsp').value || 0);
+
+    if(!nombre || precioNorm <= 0){ alert('Ingresa nombre y precio de venta válido.'); return; }
+
+    inventarioPrestamo.push({
+      id: Date.now().toString(),
+      nombre,
+      costo,
+      precioNorm,
+      precioEsp: precioEsp || precioNorm
+    });
+
+    await saveInventarioPrestamo();
+
+    document.getElementById('invNombre').value = '';
+    document.getElementById('invCosto').value = '';
+    document.getElementById('invPrecioNorm').value = '';
+    document.getElementById('invPrecioEsp').value = '';
+    renderAll();
+  });
+
+  document.getElementById('transferPrestGananciaBtn').addEventListener('click', async ()=>{
+    const montoBase = Number(prestamo.monto || 0);
+    const pctInteres = Number(prestamo.interes || 0);
+    const totalAPagar = montoBase + (montoBase * (pctInteres / 100));
+    const ventas = Number(prestamo.acumuladoVentas || 0);
+    const gananciaExtra = Math.max(0, ventas - totalAPagar);
+    const gananciaDisponible = Math.max(0, gananciaExtra - Number(prestamo.transferido || 0));
+
+    if (gananciaDisponible <= 0) return;
+
+    movimientos.push({
+      id: Date.now().toString(),
+      tipo: 'ingreso',
+      desc: 'Ganancia neta recibida de inventario del préstamo',
+      monto: gananciaDisponible,
+      fecha: todayStr()
+    });
+
+    prestamo.transferido = Number(prestamo.transferido || 0) + gananciaDisponible;
+
+    await saveMov();
+    await savePrestamo();
+    renderAll();
+    alert(`Se han transferido ${fmt(gananciaDisponible)} exitosamente a tu Caja.`);
   });
 }
 
