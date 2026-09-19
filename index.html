@@ -281,15 +281,15 @@
         <h2>Agregar cliente que debe pagar</h2>
         <label for="cobNombre">Nombre del cliente</label>
         <input type="text" id="cobNombre" placeholder="Ej. Juan Perez">
-        <label for="cobDesc">Reparacion / detalle</label>
+        <label for="cobDesc">Reparacion / detalle principal</label>
         <input type="text" id="cobDesc" placeholder="Ej. Cambio de pantalla iPhone 12">
-        <label for="cobCosto">Costo invertido (repuesto + mano de obra, L)</label>
+        <label for="cobCosto">Costo invertido inicial (L)</label>
         <input type="number" id="cobCosto" placeholder="Ej. 400" min="0" step="1">
-        <label for="cobMonto">Monto que te debe pagar (L)</label>
+        <label for="cobMonto">Monto a cobrar inicial (L)</label>
         <input type="number" id="cobMonto" placeholder="Ej. 700" min="0" step="1">
         <label for="cobFecha">Fecha</label>
         <input type="date" id="cobFecha">
-        <button class="btn-primary" id="addCobBtn">Agregar</button>
+        <button class="btn-primary" id="addCobBtn">Agregar cliente</button>
       </div>
 
       <div class="card">
@@ -448,6 +448,7 @@ async function loadData(){
       if(!f.cicloActual) f.cicloActual = cicloHoy;
       if(f.cicloActual !== cicloHoy) {
         f.pagado = 0; 
+        f.historialPagos = [];
         f.cicloActual = cicloHoy;
         actualizado = true;
       }
@@ -716,6 +717,7 @@ function renderFijos(){
     const montoTotal = Number(f.monto || 0);
     const restan = Math.max(0, montoTotal - pagado);
     const completado = restan === 0;
+    const historial = f.historialPagos || [];
 
     return `
     <div class="row" style="flex-direction:column; align-items:stretch; gap:6px;">
@@ -729,10 +731,19 @@ function renderFijos(){
           <button class="btn-del" data-del-fijo="${f.id}"><i>Borrar</i></button>
         </div>
       </div>
+
+      ${historial.length > 0 ? `
+      <div style="font-size:11px; color:var(--muted); background:var(--bg); padding:6px 8px; border-radius:6px; margin-top:2px;">
+        ${historial.map(h => `<div>• ${fmt(h.monto)} - ${escapeHtml(h.nota || 'Abono sin nota')} <span style="font-size:10px;">(${h.fecha})</span></div>`).join('')}
+      </div>` : ''}
+
       ${!completado ? `
-      <div style="display:flex; gap:6px; margin-top:4px;">
-        <input type="number" id="payInput-${f.id}" placeholder="Monto abonado (L)" min="1" step="1" style="flex:1;">
-        <button class="btn-primary" style="margin-top:0; padding:6px 10px; width:auto; background:var(--green);" data-pay-fijo="${f.id}">Abonar</button>
+      <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
+        <div style="display:flex; gap:6px;">
+          <input type="number" id="payInput-${f.id}" placeholder="Monto (L)" min="1" step="1" style="flex:1;">
+          <input type="text" id="noteInput-${f.id}" placeholder="Razón / nota (ej. Adelanto)" style="flex:1;">
+        </div>
+        <button class="btn-primary" style="margin-top:2px; padding:6px 10px; background:var(--green);" data-pay-fijo="${f.id}">Abonar gasto</button>
       </div>` : ''}
     </div>`;
   }).join('');
@@ -740,13 +751,23 @@ function renderFijos(){
   el.querySelectorAll('[data-pay-fijo]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const id = btn.dataset.payFijo;
-      const inp = document.getElementById(`payInput-${id}`);
-      const val = Number(inp.value);
+      const inpVal = document.getElementById(`payInput-${id}`);
+      const inpNote = document.getElementById(`noteInput-${id}`);
+      const val = Number(inpVal.value);
+      const nota = inpNote.value.trim();
+
       if(!val || val <= 0){ alert('Ingresa un monto válido.'); return; }
       
       const f = gastosFijos.find(x=>x.id===id);
       if(f){
         f.pagado = Number(f.pagado || 0) + val;
+        if(!f.historialPagos) f.historialPagos = [];
+        f.historialPagos.push({
+          monto: val,
+          nota: nota || 'Abono/Pago',
+          fecha: todayStr()
+        });
+
         await saveFijos();
         renderAll();
       }
@@ -954,21 +975,42 @@ function renderPorCobrar(){
 
   pend.innerHTML = pendientes.length===0
     ? '<div class="empty">No tienes clientes pendientes de pago.</div>'
-    : pendientes.map(c => `
-      <div class="row">
-        <div>
-          <div class="desc">${escapeHtml(c.cliente)}</div>
-          <div class="meta">${escapeHtml(c.desc)} · Costo ${fmt(c.costo)} · ${c.fecha||''}</div>
+    : pendientes.map(c => {
+      const extras = c.extras || [];
+      const totalExtrasCosto = extras.reduce((a,b)=>a+Number(b.costo||0),0);
+      const totalExtrasMonto = extras.reduce((a,b)=>a+Number(b.monto||0),0);
+      const costoTotal = Number(c.costo || 0) + totalExtrasCosto;
+      const montoTotal = Number(c.monto || 0) + totalExtrasMonto;
+
+      return `
+      <div class="row" style="flex-direction:column; align-items:stretch; gap:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div class="desc">${escapeHtml(c.cliente)}</div>
+            <div class="meta">${escapeHtml(c.desc)} · Costo taller ${fmt(costoTotal)} · ${c.fecha||''}</div>
+          </div>
+          <div class="item-right">
+            <span class="amt neg" style="margin-right:6px;">${fmt(montoTotal)}</span>
+            <button class="btn-del" data-del-cob="${c.id}">Borrar</button>
+          </div>
         </div>
-        <div class="item-right">
-          <span class="amt neg" style="margin-right:6px;">${fmt(c.monto)}</span>
+
+        ${extras.length > 0 ? `
+        <div style="font-size:11px; color:var(--muted); background:var(--bg); padding:6px 8px; border-radius:6px;">
+          ${extras.map(e => `<div>+ ${escapeHtml(e.desc)}: Costo ${fmt(e.costo)} | Cobro ${fmt(e.monto)}</div>`).join('')}
+        </div>` : ''}
+
+        <div style="display:flex; flex-direction:column; gap:4px; margin-top:2px;">
+          <div style="display:flex; gap:4px;">
+            <input type="text" id="extDesc-${c.id}" placeholder="Detalle extra (ej. Micrófono)" style="flex:1.5;">
+            <input type="number" id="extCosto-${c.id}" placeholder="Costo (L)" min="0" step="1" style="flex:1;">
+            <input type="number" id="extMonto-${c.id}" placeholder="Cobro (L)" min="0" step="1" style="flex:1;">
+          </div>
+          <button class="btn-primary" style="margin-top:2px; padding:6px; background:var(--accent);" data-add-extra="${c.id}">+ Agregar trabajo extra</button>
+          <button class="btn-primary" style="margin-top:2px; padding:8px; background:var(--green);" data-pay="${c.id}">Marcar todo como pagado</button>
         </div>
-      </div>
-      <div style="display:flex; gap:6px; margin:-4px 0 10px;">
-        <button class="btn-primary" style="margin-top:0; flex:1; background:var(--green);" data-pay="${c.id}">Marcar como pagado</button>
-        <button class="btn-del" data-del-cob="${c.id}">Borrar</button>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
 
   pag.innerHTML = pagados.length===0
     ? '<div class="empty">Aun no hay pagos registrados aqui.</div>'
@@ -985,24 +1027,56 @@ function renderPorCobrar(){
       </div>
     `).join('');
 
+  document.querySelectorAll('[data-add-extra]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.addExtra;
+      const descInp = document.getElementById(`extDesc-${id}`);
+      const costoInp = document.getElementById(`extCosto-${id}`);
+      const montoInp = document.getElementById(`extMonto-${id}`);
+
+      const desc = descInp.value.trim();
+      const costo = Number(costoInp.value || 0);
+      const monto = Number(montoInp.value || 0);
+
+      if(!desc || monto <= 0){ alert('Ingresa el detalle y el precio a cobrar por el extra.'); return; }
+
+      const c = porCobrar.find(x=>x.id===id);
+      if(c){
+        if(!c.extras) c.extras = [];
+        c.extras.push({ desc, costo, monto });
+        await savePorCobrar();
+        renderAll();
+      }
+    });
+  });
+
   document.querySelectorAll('[data-pay]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const c = porCobrar.find(x=>x.id===btn.dataset.pay);
       if(!c) return;
+
+      const extras = c.extras || [];
+      const totalExtrasMonto = extras.reduce((a,b)=>a+Number(b.monto||0),0);
+      const montoTotalCobrado = Number(c.monto || 0) + totalExtrasMonto;
+
       c.pagado = true;
       c.fechaPago = todayStr();
+      c.montoTotalFinal = montoTotalCobrado;
+
       movimientos.push({
         id: Date.now().toString(),
         tipo: 'ingreso',
-        desc: 'Pago de ' + c.cliente + ' - ' + c.desc,
-        monto: c.monto,
+        desc: 'Pago de ' + c.cliente + ' - ' + c.desc + (extras.length > 0 ? ' (+extras)' : ''),
+        monto: montoTotalCobrado,
         fecha: c.fechaPago
       });
+
       await savePorCobrar();
       await saveMov();
       renderAll();
     });
   });
+
   document.querySelectorAll('[data-del-cob]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       porCobrar = porCobrar.filter(c=>c.id!==btn.dataset.delCob);
@@ -1109,6 +1183,7 @@ function setupForms(){
       categoria, 
       monto, 
       pagado: 0,
+      historialPagos: [],
       cicloActual: getCicloActual()
     });
     await saveFijos();
@@ -1128,7 +1203,17 @@ function setupForms(){
 
     if(!cliente || !desc || !monto || monto <= 0){ alert('Completa los datos del cliente y monto.'); return; }
 
-    porCobrar.push({ id: Date.now().toString(), cliente, desc, costo, monto, fecha, pagado: false, fechaPago: '' });
+    porCobrar.push({ 
+      id: Date.now().toString(), 
+      cliente, 
+      desc, 
+      costo, 
+      monto, 
+      fecha, 
+      pagado: false, 
+      fechaPago: '',
+      extras: [] 
+    });
     await savePorCobrar();
 
     document.getElementById('cobNombre').value = '';
