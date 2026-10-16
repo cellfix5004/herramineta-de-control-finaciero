@@ -39,7 +39,7 @@
   .btn-del{background:transparent; color:var(--red); padding:4px 8px; font-weight:500; font-size:13px;}
   .tabs{display:flex; gap:4px; margin-bottom:14px; flex-wrap:wrap;}
   .tab{
-    flex:1; min-width:60px; text-align:center; padding:8px 2px; border-radius:8px; font-size:11px;
+    flex:1; min-width:55px; text-align:center; padding:8px 2px; border-radius:8px; font-size:11px;
     font-weight:600; background:var(--card); border:1px solid var(--border); color:var(--muted);
   }
   .tab.active{background:var(--accent); color:#fff; border-color:var(--accent);}
@@ -93,10 +93,11 @@
     <div class="tabs">
       <div class="tab active" data-tab="resumen">Resumen</div>
       <div class="tab" data-tab="movimientos">Movimientos</div>
-      <div class="tab" data-tab="costos">Costos y ganancias</div>
-      <div class="tab" data-tab="fijos">Gastos fijos</div>
-      <div class="tab" data-tab="cobrar">Por cobrar</div>
+      <div class="tab" data-tab="costos">Costos</div>
+      <div class="tab" data-tab="fijos">Fijos</div>
+      <div class="tab" data-tab="cobrar">Cobrar</div>
       <div class="tab" data-tab="prestamo">Préstamo</div>
+      <div class="tab" data-tab="historial">Meses Ant.</div>
     </div>
 
     <!-- RESUMEN -->
@@ -162,27 +163,19 @@
       </div>
 
       <div class="card">
-        <h2>Totales generales</h2>
+        <h2>Totales del ciclo actual</h2>
         <div class="stat-grid">
           <div class="stat">
-            <div class="label">Total ingresos (Caja real)</div>
+            <div class="label">Ingresos Netos del Ciclo</div>
             <div class="val" id="totIngresos">L 0</div>
           </div>
           <div class="stat">
-            <div class="label">Total gastos pagados</div>
+            <div class="label">Gastos del Ciclo</div>
             <div class="val" id="totGastos">L 0</div>
           </div>
-          <div class="stat">
-            <div class="label">Ganancia neta</div>
+          <div class="stat" style="grid-column: span 2;">
+            <div class="label">Balance Neto del Ciclo</div>
             <div class="val" id="totNeto">L 0</div>
-          </div>
-          <div class="stat">
-            <div class="label">Ganancia por productos</div>
-            <div class="val" id="totGananciaProd">L 0</div>
-          </div>
-          <div class="stat">
-            <div class="label">Pendiente por cobrar</div>
-            <div class="val" id="totPorCobrar">L 0</div>
           </div>
         </div>
       </div>
@@ -201,13 +194,31 @@
         <input type="text" id="movDesc" placeholder="Ej. Reparacion pantalla iPhone 11">
         <label for="movMonto">Monto (L)</label>
         <input type="number" id="movMonto" placeholder="Ej. 850" min="0" step="1">
+        
+        <label for="movCuenta">Cuenta</label>
+        <select id="movCuenta">
+          <option value="Efectivo">Efectivo</option>
+          <option value="Tarjeta">Tarjeta</option>
+          <option value="Transferencia">Transferencia</option>
+        </select>
+
+        <label for="movCategoria">Categoría</label>
+        <select id="movCategoria">
+          <option value="General">General</option>
+          <option value="Comida">Comida</option>
+          <option value="Suscripciones">Suscripciones / Servicios</option>
+          <option value="Transporte">Transporte / Combustible</option>
+          <option value="Repuestos">Repuestos / Taller</option>
+          <option value="Personal">Gasto Personal</option>
+        </select>
+
         <label for="movFecha">Fecha</label>
         <input type="date" id="movFecha">
         <button class="btn-primary" id="addMovBtn">Agregar movimiento</button>
       </div>
 
       <div class="card">
-        <h2>Historial</h2>
+        <h2>Historial del ciclo actual</h2>
         <div id="movList"></div>
       </div>
     </div>
@@ -369,6 +380,17 @@
       </div>
     </div>
 
+    <!-- HISTORIAL MESES ANTERIORES -->
+    <div id="tab-historial" class="tab-content hidden">
+      <div class="card">
+        <h2>Resumen de Meses Anteriores</h2>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">
+          Aquí puedes consultar el archivo histórico de ciclos pasados (del 15 al 15) sin afectar tu panel del mes actual.
+        </div>
+        <div id="historialList"></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -441,19 +463,6 @@ async function loadData(){
   try{ 
     const gf = await storage.get('gastosFijos'); 
     gastosFijos = gf ? JSON.parse(gf.value) : [];
-    
-    const cicloHoy = getCicloActual();
-    let actualizado = false;
-    gastosFijos.forEach(f => {
-      if(!f.cicloActual) f.cicloActual = cicloHoy;
-      if(f.cicloActual !== cicloHoy) {
-        f.pagado = 0; 
-        f.historialPagos = [];
-        f.cicloActual = cicloHoy;
-        actualizado = true;
-      }
-    });
-    if(actualizado) await saveFijos();
   }catch(e){ gastosFijos = []; }
 
   try{
@@ -487,13 +496,11 @@ async function saveInventarioPrestamo(){ try{ await storage.set('inventarioPrest
 function renderResumen(){
   document.getElementById('metaInput').value = meta || '';
 
-  const gananciaProd = productos.reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
   const gananciaProdCiclo = productos.filter(p => estaEnCicloActual(p.fecha))
                                      .reduce((a,b)=>a+(Number(b.precio)-Number(b.costo)),0);
 
   const delCiclo = movimientos.filter(m => estaEnCicloActual(m.fecha));
   const cobDelCicloPendientes = porCobrar.filter(c => !c.pagado && estaEnCicloActual(c.fecha));
-  
   const fijosPagadosEfectivos = gastosFijos.reduce((a,b)=>a+Number(b.pagado||0),0);
 
   const mesIng = delCiclo.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0) + gananciaProdCiclo;
@@ -510,148 +517,28 @@ function renderResumen(){
     ? pct + '% de la meta (' + fmt(mesIng) + ' de ' + fmt(meta) + ')'
     : 'Define tu meta mensual arriba';
 
-  const cobPendientesGlobales = porCobrar.filter(c => !c.pagado);
-  const totGas = movimientos.filter(m=>m.tipo==='gasto').reduce((a,b)=>a+Number(b.monto),0)
-    + fijosPagadosEfectivos
-    + cobPendientesGlobales.reduce((a,b)=>a+Number(b.costo),0);
-    
-  const ingManuales = movimientos.filter(m=>m.tipo==='ingreso').reduce((a,b)=>a+Number(b.monto),0);
-  const totIngBruto = ingManuales + gananciaProd;
-
-  const totIngCajaReal = totIngBruto - totGas;
-
-  document.getElementById('totIngresos').textContent = fmt(totIngCajaReal);
-  document.getElementById('totGastos').textContent = fmt(totGas);
+  document.getElementById('totIngresos').textContent = fmt(mesIng);
+  document.getElementById('totGastos').textContent = fmt(mesGas);
   
-  const neto = totIngBruto - totGas;
+  const neto = mesIng - mesGas;
   const netoEl = document.getElementById('totNeto');
   netoEl.textContent = fmt(neto);
   netoEl.style.color = neto >= 0 ? 'var(--green)' : 'var(--red)';
-
-  document.getElementById('totGananciaProd').textContent = fmt(gananciaProd);
-
-  const pendiente = porCobrar.filter(c=>!c.pagado).reduce((a,b)=>a+Number(b.monto),0);
-  document.getElementById('totPorCobrar').textContent = fmt(pendiente);
-}
-
-function renderPrestamo(){
-  document.getElementById('prestMonto').value = prestamo.monto || '';
-  document.getElementById('prestInteres').value = prestamo.interes || '';
-
-  const montoBase = Number(prestamo.monto || 0);
-  const pctInteres = Number(prestamo.interes || 0);
-  const totalAPagar = montoBase + (montoBase * (pctInteres / 100));
-  const ventas = Number(prestamo.acumuladoVentas || 0);
-  const recuperado = Math.min(totalAPagar, ventas);
-  const deudaPendiente = Math.max(0, totalAPagar - ventas);
-  const gananciaExtra = Math.max(0, ventas - totalAPagar);
-  const gananciaDisponibleTransferir = Math.max(0, gananciaExtra - Number(prestamo.transferido || 0));
-
-  document.getElementById('prestTotalPagar').textContent = fmt(totalAPagar);
-  document.getElementById('prestRecuperado').textContent = fmt(recuperado);
-  document.getElementById('prestDeudaPend').textContent = fmt(deudaPendiente);
-  document.getElementById('prestGananciaExtra').textContent = fmt(gananciaExtra);
-
-  const pct = totalAPagar > 0 ? Math.min(100, Math.round((recuperado / totalAPagar) * 100)) : 0;
-  document.getElementById('prestProgressBar').style.width = pct + '%';
-  document.getElementById('prestProgressText').textContent = totalAPagar > 0 
-    ? pct + '% liquidado (' + fmt(recuperado) + ' de ' + fmt(totalAPagar) + ')'
-    : 'Ingresa los datos de tu préstamo arriba';
-
-  const transferWrap = document.getElementById('prestTransferWrap');
-  if (gananciaDisponibleTransferir > 0) {
-    transferWrap.classList.remove('hidden');
-    document.getElementById('transferPrestGananciaBtn').textContent = `Transferir a Caja (${fmt(gananciaDisponibleTransferir)})`;
-  } else {
-    transferWrap.classList.add('hidden');
-  }
-
-  const W = 300, H = 30;
-  const scaleRec = totalAPagar > 0 ? (recuperado / totalAPagar) * W : 0;
-  document.getElementById('prestChart').innerHTML = `
-    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
-      <rect x="0" y="5" width="${W}" height="20" rx="4" fill="var(--redbg)"/>
-      <rect x="0" y="5" width="${scaleRec}" height="20" rx="4" fill="var(--green)"/>
-    </svg>
-  `;
-
-  const el = document.getElementById('invList');
-  if (inventarioPrestamo.length === 0) {
-    el.innerHTML = '<div class="empty">No hay productos en este inventario.</div>';
-    return;
-  }
-
-  el.innerHTML = inventarioPrestamo.map(item => {
-    const stock = Number(item.cantidad || 0);
-    const agotado = stock <= 0;
-
-    return `
-    <div class="row" style="flex-direction:column; align-items:stretch; gap:6px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div>
-          <div class="desc">${escapeHtml(item.nombre)} <span class="badge ${agotado?'gasto':'ingreso'}">${stock} en stock</span></div>
-          <div class="meta">Costo: ${fmt(item.costo)} · Normal: ${fmt(item.precioNorm)} · VIP: ${fmt(item.precioEsp)}</div>
-        </div>
-        <button class="btn-del" data-del-inv="${item.id}"><i>Borrar</i></button>
-      </div>
-      <div style="display:flex; gap:6px;">
-        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1;" data-sell-norm="${item.id}" ${agotado?'disabled style="opacity:0.5; cursor:not-allowed;"':''}>
-          ${agotado ? 'Agotado' : 'Vender 1 Normal (' + fmt(item.precioNorm) + ')'}
-        </button>
-        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1; background:var(--green);" data-sell-esp="${item.id}" ${agotado?'disabled style="opacity:0.5; cursor:not-allowed;"':''}>
-          ${agotado ? 'Agotado' : 'Vender 1 VIP (' + fmt(item.precioEsp) + ')'}
-        </button>
-      </div>
-    </div>`;
-  }).join('');
-
-  el.querySelectorAll('[data-sell-norm]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const item = inventarioPrestamo.find(x => x.id === btn.dataset.sellNorm);
-      if (item && Number(item.cantidad) > 0) {
-        item.cantidad = Number(item.cantidad) - 1;
-        prestamo.acumuladoVentas = Number(prestamo.acumuladoVentas || 0) + Number(item.precioNorm);
-        await saveInventarioPrestamo();
-        await savePrestamo();
-        renderAll();
-      }
-    });
-  });
-
-  el.querySelectorAll('[data-sell-esp]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const item = inventarioPrestamo.find(x => x.id === btn.dataset.sellEsp);
-      if (item && Number(item.cantidad) > 0) {
-        item.cantidad = Number(item.cantidad) - 1;
-        prestamo.acumuladoVentas = Number(prestamo.acumuladoVentas || 0) + Number(item.precioEsp);
-        await saveInventarioPrestamo();
-        await savePrestamo();
-        renderAll();
-      }
-    });
-  });
-
-  el.querySelectorAll('[data-del-inv]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      inventarioPrestamo = inventarioPrestamo.filter(x => x.id !== btn.dataset.delInv);
-      await saveInventarioPrestamo();
-      renderAll();
-    });
-  });
 }
 
 function renderMovs(){
   const el = document.getElementById('movList');
-  if(movimientos.length===0){
-    el.innerHTML = '<div class="empty">Todavia no hay movimientos registrados.</div>';
+  const movsCiclo = movimientos.filter(m => estaEnCicloActual(m.fecha));
+  if(movsCiclo.length===0){
+    el.innerHTML = '<div class="empty">No hay movimientos en este ciclo actual.</div>';
     return;
   }
-  const sorted = [...movimientos].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
+  const sorted = [...movsCiclo].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
   el.innerHTML = sorted.map(m => `
     <div class="row">
       <div>
-        <div class="desc">${escapeHtml(m.desc)}<span class="badge ${m.tipo}">${m.tipo}</span></div>
-        <div class="meta">${m.fecha||''}</div>
+        <div class="desc">${escapeHtml(m.desc)} <span class="badge ${m.tipo}">${m.tipo}</span></div>
+        <div class="meta">${m.cuenta || 'Efectivo'} · ${m.categoria || 'General'} · ${m.fecha||''}</div>
       </div>
       <div class="item-right">
         <span class="amt ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmt(m.monto)}</span>
@@ -1068,7 +955,9 @@ function renderPorCobrar(){
         tipo: 'ingreso',
         desc: 'Pago de ' + c.cliente + ' - ' + c.desc + (extras.length > 0 ? ' (+extras)' : ''),
         monto: montoTotalCobrado,
-        fecha: c.fechaPago
+        fecha: c.fechaPago,
+        cuenta: 'Efectivo',
+        categoria: 'Repuestos'
       });
 
       await savePorCobrar();
@@ -1086,6 +975,163 @@ function renderPorCobrar(){
   });
 }
 
+function renderPrestamo(){
+  document.getElementById('prestMonto').value = prestamo.monto || '';
+  document.getElementById('prestInteres').value = prestamo.interes || '';
+
+  const montoBase = Number(prestamo.monto || 0);
+  const pctInteres = Number(prestamo.interes || 0);
+  const totalAPagar = montoBase + (montoBase * (pctInteres / 100));
+  const ventas = Number(prestamo.acumuladoVentas || 0);
+  const recuperado = Math.min(totalAPagar, ventas);
+  const deudaPendiente = Math.max(0, totalAPagar - ventas);
+  const gananciaExtra = Math.max(0, ventas - totalAPagar);
+  const gananciaDisponibleTransferir = Math.max(0, gananciaExtra - Number(prestamo.transferido || 0));
+
+  document.getElementById('prestTotalPagar').textContent = fmt(totalAPagar);
+  document.getElementById('prestRecuperado').textContent = fmt(recuperado);
+  document.getElementById('prestDeudaPend').textContent = fmt(deudaPendiente);
+  document.getElementById('prestGananciaExtra').textContent = fmt(gananciaExtra);
+
+  const pct = totalAPagar > 0 ? Math.min(100, Math.round((recuperado / totalAPagar) * 100)) : 0;
+  document.getElementById('prestProgressBar').style.width = pct + '%';
+  document.getElementById('prestProgressText').textContent = totalAPagar > 0 
+    ? pct + '% liquidado (' + fmt(recuperado) + ' de ' + fmt(totalAPagar) + ')'
+    : 'Ingresa los datos de tu préstamo arriba';
+
+  const transferWrap = document.getElementById('prestTransferWrap');
+  if (gananciaDisponibleTransferir > 0) {
+    transferWrap.classList.remove('hidden');
+    document.getElementById('transferPrestGananciaBtn').textContent = `Transferir a Caja (${fmt(gananciaDisponibleTransferir)})`;
+  } else {
+    transferWrap.classList.add('hidden');
+  }
+
+  const W = 300, H = 30;
+  const scaleRec = totalAPagar > 0 ? (recuperado / totalAPagar) * W : 0;
+  document.getElementById('prestChart').innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+      <rect x="0" y="5" width="${W}" height="20" rx="4" fill="var(--redbg)"/>
+      <rect x="0" y="5" width="${scaleRec}" height="20" rx="4" fill="var(--green)"/>
+    </svg>
+  `;
+
+  const el = document.getElementById('invList');
+  if (inventarioPrestamo.length === 0) {
+    el.innerHTML = '<div class="empty">No hay productos en este inventario.</div>';
+    return;
+  }
+
+  el.innerHTML = inventarioPrestamo.map(item => {
+    const stock = Number(item.cantidad || 0);
+    const agotado = stock <= 0;
+
+    return `
+    <div class="row" style="flex-direction:column; align-items:stretch; gap:6px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="desc">${escapeHtml(item.nombre)} <span class="badge ${agotado?'gasto':'ingreso'}">${stock} en stock</span></div>
+          <div class="meta">Costo: ${fmt(item.costo)} · Normal: ${fmt(item.precioNorm)} · VIP: ${fmt(item.precioEsp)}</div>
+        </div>
+        <button class="btn-del" data-del-inv="${item.id}"><i>Borrar</i></button>
+      </div>
+      <div style="display:flex; gap:6px;">
+        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1;" data-sell-norm="${item.id}" ${agotado?'disabled style="opacity:0.5; cursor:not-allowed;"':''}>
+          ${agotado ? 'Agotado' : 'Vender 1 Normal (' + fmt(item.precioNorm) + ')'}
+        </button>
+        <button class="btn-primary" style="margin-top:0; padding:6px; flex:1; background:var(--green);" data-sell-esp="${item.id}" ${agotado?'disabled style="opacity:0.5; cursor:not-allowed;"':''}>
+          ${agotado ? 'Agotado' : 'Vender 1 VIP (' + fmt(item.precioEsp) + ')'}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-sell-norm]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = inventarioPrestamo.find(x => x.id === btn.dataset.sellNorm);
+      if (item && Number(item.cantidad) > 0) {
+        item.cantidad = Number(item.cantidad) - 1;
+        prestamo.acumuladoVentas = Number(prestamo.acumuladoVentas || 0) + Number(item.precioNorm);
+        await saveInventarioPrestamo();
+        await savePrestamo();
+        renderAll();
+      }
+    });
+  });
+
+  el.querySelectorAll('[data-sell-esp]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = inventarioPrestamo.find(x => x.id === btn.dataset.sellEsp);
+      if (item && Number(item.cantidad) > 0) {
+        item.cantidad = Number(item.cantidad) - 1;
+        prestamo.acumuladoVentas = Number(prestamo.acumuladoVentas || 0) + Number(item.precioEsp);
+        await saveInventarioPrestamo();
+        await savePrestamo();
+        renderAll();
+      }
+    });
+  });
+
+  el.querySelectorAll('[data-del-inv]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      inventarioPrestamo = inventarioPrestamo.filter(x => x.id !== btn.dataset.delInv);
+      await saveInventarioPrestamo();
+      renderAll();
+    });
+  });
+}
+
+function renderHistorialMeses(){
+  const el = document.getElementById('historialList');
+  const ciclosMap = {};
+
+  movimientos.forEach(m => {
+    if(!m.fecha) return;
+    const c = getCicloActual(new Date(m.fecha + 'T00:00:00'));
+    if(!ciclosMap[c]) ciclosMap[c] = { ingresos: 0, gastos: 0 };
+    if(m.tipo === 'ingreso') ciclosMap[c].ingresos += Number(m.monto || 0);
+    else ciclosMap[c].gastos += Number(m.monto || 0);
+  });
+
+  productos.forEach(p => {
+    if(!p.fecha) return;
+    const c = getCicloActual(new Date(p.fecha + 'T00:00:00'));
+    if(!ciclosMap[c]) ciclosMap[c] = { ingresos: 0, gastos: 0 };
+    ciclosMap[c].ingresos += (Number(p.precio || 0) - Number(p.costo || 0));
+  });
+
+  const ciclosKeys = Object.keys(ciclosMap).sort().reverse();
+  const cicloActualStr = getCicloActual();
+
+  const ciclosPasados = ciclosKeys.filter(c => c !== cicloActualStr);
+
+  if(ciclosPasados.length === 0){
+    el.innerHTML = '<div class="empty">No hay registros de ciclos anteriores todavía.</div>';
+    return;
+  }
+
+  el.innerHTML = ciclosPasados.map(c => {
+    const data = ciclosMap[c];
+    const balance = data.ingresos - data.gastos;
+    const [y, m] = c.split('-');
+    const nombreCiclo = `Ciclo del 15 de ${MESES[Number(m)-1]} ${y}`;
+
+    return `
+      <div class="row" style="flex-direction:column; align-items:stretch; gap:4px; padding:12px 0;">
+        <div style="font-weight:600; font-size:14px; color:var(--text);">${nombreCiclo}</div>
+        <div style="display:flex; justify-content:space-between; font-size:13px; color:var(--muted);">
+          <span>Ingresos: <strong style="color:var(--green);">${fmt(data.ingresos)}</strong></span>
+          <span>Gastos: <strong style="color:var(--red);">${fmt(data.gastos)}</strong></span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:13px; margin-top:2px;">
+          <span>Balance Neto:</span>
+          <strong class="${balance >= 0 ? 'pos' : 'neg'}">${fmt(balance)}</strong>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function renderAll(){
   renderResumen();
   renderMovs();
@@ -1096,6 +1142,7 @@ function renderAll(){
   renderWeeklyChart();
   renderPorCobrar();
   renderPrestamo();
+  renderHistorialMeses();
 }
 
 function setupTabs(){
@@ -1133,11 +1180,13 @@ function setupForms(){
   document.getElementById('addMovBtn').addEventListener('click', async ()=>{
     const desc = document.getElementById('movDesc').value.trim();
     const monto = Number(document.getElementById('movMonto').value);
+    const cuenta = document.getElementById('movCuenta').value;
+    const categoria = document.getElementById('movCategoria').value;
     const fecha = document.getElementById('movFecha').value || todayStr();
 
     if(!desc || !monto || monto <= 0){ alert('Completa los campos correctamente.'); return; }
 
-    movimientos.push({ id: Date.now().toString(), tipo: tipoSel, desc, monto, fecha });
+    movimientos.push({ id: Date.now().toString(), tipo: tipoSel, desc, monto, fecha, cuenta, categoria });
     await saveMov();
 
     document.getElementById('movDesc').value = '';
@@ -1276,7 +1325,9 @@ function setupForms(){
       tipo: 'ingreso',
       desc: 'Ganancia neta recibida de inventario del préstamo',
       monto: gananciaDisponible,
-      fecha: todayStr()
+      fecha: todayStr(),
+      cuenta: 'Efectivo',
+      categoria: 'General'
     });
 
     prestamo.transferido = Number(prestamo.transferido || 0) + gananciaDisponible;
