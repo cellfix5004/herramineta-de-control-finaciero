@@ -81,6 +81,25 @@
   .toggle button{flex:1; background:var(--bg); color:var(--muted); border:1px solid var(--border);}
   .toggle button.sel-ingreso{background:var(--greenbg); color:var(--green); border-color:var(--green);}
   .toggle button.sel-gasto{background:var(--redbg); color:var(--red); border-color:var(--red);}
+  
+  /* Estilo adicional para los acordeones del historial */
+  .hist-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .hist-header {
+    padding: 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .hist-details {
+    padding: 10px 12px;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+  }
 </style>
 </head>
 <body>
@@ -385,7 +404,7 @@
       <div class="card">
         <h2>Resumen de Meses Anteriores</h2>
         <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">
-          Aquí puedes consultar el archivo histórico de ciclos pasados (del 15 al 15) sin afectar tu panel del mes actual.
+          Toca cualquier mes para desplegar el historial de ingresos y gastos de ese periodo.
         </div>
         <div id="historialList"></div>
       </div>
@@ -1085,24 +1104,38 @@ function renderHistorialMeses(){
   const el = document.getElementById('historialList');
   const ciclosMap = {};
 
+  // Agrupar movimientos por ciclo
   movimientos.forEach(m => {
     if(!m.fecha) return;
     const c = getCicloActual(new Date(m.fecha + 'T00:00:00'));
-    if(!ciclosMap[c]) ciclosMap[c] = { ingresos: 0, gastos: 0 };
-    if(m.tipo === 'ingreso') ciclosMap[c].ingresos += Number(m.monto || 0);
-    else ciclosMap[c].gastos += Number(m.monto || 0);
+    if(!ciclosMap[c]) ciclosMap[c] = { ingresos: 0, gastos: 0, items: [] };
+    if(m.tipo === 'ingreso') {
+      ciclosMap[c].ingresos += Number(m.monto || 0);
+    } else {
+      ciclosMap[c].gastos += Number(m.monto || 0);
+    }
+    ciclosMap[c].items.push(m);
   });
 
+  // Agrupar reparaciones/productos por ciclo
   productos.forEach(p => {
     if(!p.fecha) return;
     const c = getCicloActual(new Date(p.fecha + 'T00:00:00'));
-    if(!ciclosMap[c]) ciclosMap[c] = { ingresos: 0, gastos: 0 };
-    ciclosMap[c].ingresos += (Number(p.precio || 0) - Number(p.costo || 0));
+    if(!ciclosMap[c]) ciclosMap[c] = { ingresos: 0, gastos: 0, items: [] };
+    const gan = Number(p.precio || 0) - Number(p.costo || 0);
+    ciclosMap[c].ingresos += gan;
+    ciclosMap[c].items.push({
+      desc: p.nombre,
+      monto: gan,
+      tipo: 'ingreso',
+      fecha: p.fecha,
+      cuenta: 'Taller',
+      categoria: 'Repuestos/Producto'
+    });
   });
 
   const ciclosKeys = Object.keys(ciclosMap).sort().reverse();
   const cicloActualStr = getCicloActual();
-
   const ciclosPasados = ciclosKeys.filter(c => c !== cicloActualStr);
 
   if(ciclosPasados.length === 0){
@@ -1115,21 +1148,62 @@ function renderHistorialMeses(){
     const balance = data.ingresos - data.gastos;
     const [y, m] = c.split('-');
     const nombreCiclo = `Ciclo del 15 de ${MESES[Number(m)-1]} ${y}`;
+    
+    // Ordenar elementos del ciclo por fecha descendente
+    const sortedItems = [...data.items].sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+
+    const itemsHtml = sortedItems.length === 0 
+      ? '<div class="empty">Sin detalle de movimientos.</div>'
+      : sortedItems.map(item => `
+        <div class="row" style="padding:6px 0;">
+          <div>
+            <div class="desc" style="font-size:13px;">${escapeHtml(item.desc)} <span class="badge ${item.tipo}">${item.tipo}</span></div>
+            <div class="meta" style="font-size:11px;">${item.cuenta || 'Efectivo'} · ${item.categoria || 'General'} · ${item.fecha||''}</div>
+          </div>
+          <span class="amt ${item.tipo==='ingreso'?'pos':'neg'}" style="font-size:13px;">${item.tipo==='ingreso'?'+':'-'}${fmt(item.monto)}</span>
+        </div>
+      `).join('');
 
     return `
-      <div class="row" style="flex-direction:column; align-items:stretch; gap:4px; padding:12px 0;">
-        <div style="font-weight:600; font-size:14px; color:var(--text);">${nombreCiclo}</div>
-        <div style="display:flex; justify-content:space-between; font-size:13px; color:var(--muted);">
-          <span>Ingresos: <strong style="color:var(--green);">${fmt(data.ingresos)}</strong></span>
-          <span>Gastos: <strong style="color:var(--red);">${fmt(data.gastos)}</strong></span>
+      <div class="hist-card">
+        <div class="hist-header" data-toggle-hist="${c}">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-weight:600; font-size:14px; color:var(--text);">${nombreCiclo}</div>
+            <span style="font-size:12px; color:var(--accent); font-weight:600;" id="arrow-${c}">Ver detalle ▼</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:6px;">
+            <span>Ingresos: <strong style="color:var(--green);">${fmt(data.ingresos)}</strong></span>
+            <span>Gastos: <strong style="color:var(--red);">${fmt(data.gastos)}</strong></span>
+            <span>Neto: <strong class="${balance >= 0 ? 'pos' : 'neg'}">${fmt(balance)}</strong></span>
+          </div>
         </div>
-        <div style="display:flex; justify-content:space-between; font-size:13px; margin-top:2px;">
-          <span>Balance Neto:</span>
-          <strong class="${balance >= 0 ? 'pos' : 'neg'}">${fmt(balance)}</strong>
+
+        <div id="details-${c}" class="hist-details hidden">
+          <div style="font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px; border-bottom:1px solid var(--border); padding-bottom:4px;">
+            Entradas y salidas de dinero registradas:
+          </div>
+          ${itemsHtml}
         </div>
       </div>
     `;
   }).join('');
+
+  // Event listener para desplegar/contraer
+  el.querySelectorAll('[data-toggle-hist]').forEach(header => {
+    header.addEventListener('click', () => {
+      const id = header.dataset.toggleHist;
+      const detailsEl = document.getElementById(`details-${id}`);
+      const arrowEl = document.getElementById(`arrow-${id}`);
+      
+      if (detailsEl.classList.contains('hidden')) {
+        detailsEl.classList.remove('hidden');
+        arrowEl.textContent = 'Ocultar ▲';
+      } else {
+        detailsEl.classList.add('hidden');
+        arrowEl.textContent = 'Ver detalle ▼';
+      }
+    });
+  });
 }
 
 function renderAll(){
